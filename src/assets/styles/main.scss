@@ -1,0 +1,138 @@
+// 主样式文件
+@import './variables.scss';
+
+// 全局样式
+.container {
+  padding: 20px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #e6e6e6;
+
+  h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 500;
+  }
+}
+
+// 卡片样式
+.card {
+  background: #fff;
+  border-radius: 4px;
+  padding: 20px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+}
+
+// 搜索栏样式
+.search-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+
+  .el-input,
+  .el-select {
+    width: 200px;
+  }
+}
+
+// 表格操作按钮
+.table-actions {
+  display: flex;
+  gap: 5px;
+}
+
+// 状态标签
+.status-tag {
+  &.success {
+    color: #67c23a;
+  }
+  &.warning {
+    color: #e6a23c;
+  }
+  &.danger {
+    color: #f56c6c;
+  }
+  &.info {
+    color: #909399;
+  }
+}
+
+// 统计卡片
+.stat-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  
+  .stat-value {
+    font-size: 32px;
+    font-weight: bold;
+    margin: 10px 0;
+  }
+  
+  .stat-label {
+    font-size: 14px;
+    opacity: 0.9;
+  }
+}
+
+// 响应式
+@media (max-width: 768px) {
+  .search-bar {
+    .el-input,
+    .el-select {
+      width: 100%;
+    }
+  }
+}
+
+// 滚动条样式
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+  
+  &:hover {
+    background: #555;
+  }
+}
+
+// 过渡动画
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-enter-active,
+.slide-leave-active {
+  transition: transform 0.3s;
+}
+
+.slide-enter-from {
+  transform: translateX(-100%);
+}
+
+.slide-leave-to {
+  transform: translateX(100%);
+}
