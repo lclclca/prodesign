@@ -46,48 +46,15 @@ const routes = [
         component: () => import('@/views/Projects.vue'),
         meta: { title: '项目管理' }
       },
-
-      // 以下是您项目中存在的其他页面，如果对应的 .vue 文件存在就保留，不存在就注释掉
-
-      // 想定管理
-      // {
-      //   path: 'scenario',
-      //   name: 'Scenario',
-      //   component: () => import('@/views/Scenario.vue'),
-      //   meta: { title: '想定管理' }
-      // },
-
-      // 效能评估
-      // {
-      //   path: 'assessment',
-      //   name: 'Assessment',
-      //   component: () => import('@/views/Assessment.vue'),
-      //   meta: { title: '效能评估' }
-      // },
-
-      // 仿真推演
-      // {
-      //   path: 'simulation',
-      //   name: 'Simulation',
-      //   component: () => import('@/views/Simulation.vue'),
-      //   meta: { title: '仿真推演' }
-      // },
-
-      // 报告管理
-      // {
-      //   path: 'report',
-      //   name: 'Report',
-      //   component: () => import('@/views/Report.vue'),
-      //   meta: { title: '报告管理' }
-      // },
-
-      // 系统设置
-      // {
-      //   path: 'system',
-      //   name: 'System',
-      //   component: () => import('@/views/System.vue'),
-      //   meta: { title: '系统设置' }
-      // }
+      {
+        path: 'simulation',  // ⚠️ 不要用 '/simulation'，用相对路径
+        name: 'Simulation',
+        component: () => import('@/views/Simulation/index.vue'),
+        meta: {
+          title: '推演仿真',
+          icon: 'VideoPlay'
+        }
+      }
     ]
   },
 

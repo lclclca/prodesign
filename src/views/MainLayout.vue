@@ -34,6 +34,11 @@
           <span>项目管理</span>
         </el-menu-item>
 
+        <el-menu-item index="/simulation">
+          <el-icon><VideoPlay /></el-icon>
+          <span>仿真推演</span>
+        </el-menu-item>
+
         <!-- 以下菜单项被注释，如果对应页面存在，可以取消注释 -->
 
         <!-- <el-menu-item index="/scenario">
