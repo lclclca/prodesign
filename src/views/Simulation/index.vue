@@ -138,51 +138,16 @@
                 </el-button>
               </div>
 
-              <!-- 节点选择 -->
+              <!-- 杀伤链搜索 -->
               <div class="control-section">
-                <div class="section-title">节点控制</div>
-                <el-select
-                  v-model="selectedNodeId"
-                  placeholder="选择我方节点"
-                  style="width: 100%"
-                  size="default"
-                  filterable
-                >
-                  <el-option
-                    v-for="node in blueNodes.filter(n => n.hp > 0)"
-                    :key="node.id"
-                    :label="`${node.name} (HP:${node.hp})`"
-                    :value="node.id"
-                  >
-                  </el-option>
-                </el-select>
-              </div>
-
-              <!-- 移动控制 -->
-              <div class="control-section">
-                <div class="section-title">移动指令</div>
-                <div class="direction-control">
-                  <div></div>
-                  <el-button @click="moveNode('up')" size="small" style="width: 50px">↑</el-button>
-                  <div></div>
-                  <el-button @click="moveNode('left')" size="small" style="width: 50px">←</el-button>
-                  <el-button size="small" disabled style="width: 50px">●</el-button>
-                  <el-button @click="moveNode('right')" size="small" style="width: 50px">→</el-button>
-                  <div></div>
-                  <el-button @click="moveNode('down')" size="small" style="width: 50px">↓</el-button>
-                  <div></div>
-                </div>
-              </div>
-
-              <!-- 打击控制 -->
-              <div class="control-section">
-                <div class="section-title">打击指令</div>
+                <div class="section-title">杀伤链搜索</div>
                 <el-select
                   v-model="targetNodeId"
                   placeholder="选择敌方目标"
                   style="width: 100%; margin-bottom: 10px"
                   size="default"
                   filterable
+                  @change="killChains = []; selectedChainId = null"
                 >
                   <el-option
                     v-for="node in redNodes.filter(n => n.hp > 0)"
@@ -192,12 +157,66 @@
                   />
                 </el-select>
                 <el-button
-                  type="danger"
+                  type="primary"
                   style="width: 100%"
-                  @click="executeAttack"
-                  :disabled="!selectedNodeId || !targetNodeId"
+                  @click="searchKillChains"
+                  :disabled="!targetNodeId"
+                  :loading="searching"
                 >
-                  🎯 发起打击
+                  🔍 搜索杀伤链
+                </el-button>
+                
+                <!-- 搜索结果提示 -->
+                <div v-if="killChains.length > 0" style="margin-top: 10px">
+                  <el-alert
+                    :title="`找到 ${killChains.length} 条杀伤链`"
+                    type="success"
+                    :closable="false"
+                  />
+                </div>
+                <div v-else-if="showChainList && killChains.length === 0" style="margin-top: 10px">
+                  <el-alert
+                    title="未找到可用杀伤链"
+                    type="warning"
+                    :closable="false"
+                  />
+                </div>
+              </div>
+
+              <!-- 杀伤链列表 -->
+              <div v-if="killChains.length > 0" class="control-section">
+                <div class="section-title">杀伤链列表</div>
+                <el-scrollbar max-height="300px">
+                  <div class="kill-chain-list">
+                    <div
+                      v-for="chain in killChains"
+                      :key="chain.id"
+                      :class="['chain-item', { 'chain-selected': selectedChainId === chain.id }]"
+                      @click="selectChain(chain.id)"
+                    >
+                      <div class="chain-header">
+                        <el-tag size="small" type="success">
+                          效能: {{ (chain.effectiveness * 100).toFixed(1) }}%
+                        </el-tag>
+                        <el-tag size="small" type="info">
+                          {{ chain.length }} 节点
+                        </el-tag>
+                      </div>
+                      <div class="chain-path">
+                        {{ chain.nodeDetails.map(n => n.name).join(' → ') }}
+                      </div>
+                    </div>
+                  </div>
+                </el-scrollbar>
+                
+                <!-- 执行打击按钮 -->
+                <el-button
+                  v-if="selectedChainId"
+                  type="danger"
+                  style="width: 100%; margin-top: 10px"
+                  @click="executeStrike"
+                >
+                  🎯 执行打击
                 </el-button>
               </div>
 
@@ -302,6 +321,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useNetworkStore } from '@/store/modules/network'
+import { KillChainSearchEngine } from '@/utils/killChainSearch'
 
 // Store
 const networkStore = useNetworkStore()
@@ -333,6 +353,12 @@ const selectedNodeId = ref(null)
 const targetNodeId = ref(null)
 const attackCount = ref(0)
 const hitRate = ref(100)
+
+// 杀伤链相关
+const killChains = ref([])           // 搜索到的杀伤链列表
+const selectedChainId = ref(null)    // 选中的杀伤链ID
+const showChainList = ref(false)     // 是否显示杀伤链列表
+const searching = ref(false)         // 搜索状态
 
 // 日志
 const battleLogs = ref([])
@@ -506,6 +532,11 @@ const reloadNetwork = () => {
   hitRate.value = 100
   selectedNodeId.value = null
   targetNodeId.value = null
+  
+  // 清空杀伤链搜索结果
+  killChains.value = []
+  selectedChainId.value = null
+  showChainList.value = false
 
   drawBattlefield()
   addLog('网络已重新加载', 'info')
@@ -587,6 +618,14 @@ const drawBattlefield = () => {
   ctx.fillText('我方', 50, 40)
   ctx.fillText('敌方', worldWidth - 100, 40)
 
+  // 绘制所有edges（网络连接）
+  drawAllEdges()
+
+  // 如果选中了杀伤链，高亮显示
+  if (selectedChainId.value) {
+    highlightKillChain()
+  }
+
   // 绘制节点
   displayNodes.value.forEach(node => {
     drawNode(node, node.id === selectedNodeId.value)
@@ -659,6 +698,135 @@ const drawNode = (node, selected) => {
   ctx.fillStyle = node.hp > 50 ? '#67C23A' : '#F56C6C'
   ctx.fillRect(barX, barY, barWidth * (node.hp / 100), barHeight)
 }
+
+// 绘制所有edges
+const drawAllEdges = () => {
+  if (!networkStore.edges || networkStore.edges.length === 0) return
+  
+  const edgeStyles = {
+    'detection': { color: '#409EFF', width: 1.5, dash: [5, 5] },
+    'communication': { color: '#67C23A', width: 2, dash: [] },
+    'strike': { color: '#F56C6C', width: 2, dash: [10, 5] }
+  }
+  
+  networkStore.edges.forEach(edge => {
+    const source = displayNodes.value.find(n => n.id === edge.source)
+    const target = displayNodes.value.find(n => n.id === edge.target)
+    
+    if (!source || !target) return
+    
+    const style = edgeStyles[edge.type] || edgeStyles.communication
+    
+    ctx.strokeStyle = style.color
+    ctx.lineWidth = style.width / scale.value
+    ctx.setLineDash(style.dash.map(d => d / scale.value))
+    ctx.globalAlpha = 0.3
+    
+    ctx.beginPath()
+    ctx.moveTo(source.x, source.y)
+    ctx.lineTo(target.x, target.y)
+    ctx.stroke()
+    
+    // 绘制箭头
+    drawArrow(source, target, style.color)
+    
+    ctx.globalAlpha = 1
+    ctx.setLineDash([])
+  })
+}
+
+// 绘制箭头
+const drawArrow = (source, target, color) => {
+  const angle = Math.atan2(target.y - source.y, target.x - source.x)
+  const arrowSize = 8 / scale.value
+  const arrowX = target.x - Math.cos(angle) * 32
+  const arrowY = target.y - Math.sin(angle) * 32
+  
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1.5 / scale.value
+  ctx.globalAlpha = 0.5
+  
+  ctx.beginPath()
+  ctx.moveTo(arrowX, arrowY)
+  ctx.lineTo(
+    arrowX - arrowSize * Math.cos(angle - Math.PI / 6),
+    arrowY - arrowSize * Math.sin(angle - Math.PI / 6)
+  )
+  ctx.moveTo(arrowX, arrowY)
+  ctx.lineTo(
+    arrowX - arrowSize * Math.cos(angle + Math.PI / 6),
+    arrowY - arrowSize * Math.sin(angle + Math.PI / 6)
+  )
+  ctx.stroke()
+}
+
+// 高亮杀伤链
+const highlightKillChain = () => {
+  const chain = killChains.value.find(c => c.id === selectedChainId.value)
+  if (!chain) return
+  
+  // 绘制高亮的edges
+  chain.edges.forEach((edge, idx) => {
+    const source = displayNodes.value.find(n => n.id === edge.source)
+    const target = displayNodes.value.find(n => n.id === edge.target)
+    
+    if (!source || !target) return
+    
+    // 高亮线条
+    ctx.strokeStyle = '#FFD700'
+    ctx.lineWidth = 4 / scale.value
+    ctx.setLineDash([])
+    ctx.globalAlpha = 0.9
+    
+    ctx.beginPath()
+    ctx.moveTo(source.x, source.y)
+    ctx.lineTo(target.x, target.y)
+    ctx.stroke()
+    
+    // 绘制序号
+    const midX = (source.x + target.x) / 2
+    const midY = (source.y + target.y) / 2
+    
+    ctx.fillStyle = '#FFD700'
+    ctx.beginPath()
+    ctx.arc(midX, midY, 12 / scale.value, 0, Math.PI * 2)
+    ctx.fill()
+    
+    ctx.fillStyle = '#000'
+    ctx.font = `bold ${14 / scale.value}px Arial`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText((idx + 1).toString(), midX, midY)
+    
+    ctx.globalAlpha = 1
+  })
+  
+  // 高亮节点
+  chain.nodeDetails.forEach((node, idx) => {
+    ctx.strokeStyle = '#FFD700'
+    ctx.lineWidth = 5 / scale.value
+    ctx.globalAlpha = 0.9
+    
+    ctx.beginPath()
+    ctx.arc(node.x, node.y, 32, 0, Math.PI * 2)
+    ctx.stroke()
+    
+    // 绘制节点序号
+    ctx.fillStyle = '#FFD700'
+    ctx.beginPath()
+    ctx.arc(node.x, node.y - 45, 15 / scale.value, 0, Math.PI * 2)
+    ctx.fill()
+    
+    ctx.fillStyle = '#000'
+    ctx.font = `bold ${16 / scale.value}px Arial`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText((idx + 1).toString(), node.x, node.y - 45)
+    
+    ctx.globalAlpha = 1
+  })
+}
+
 
 // 缩放控制
 const zoomIn = () => {
@@ -786,77 +954,137 @@ const handleMouseUp = () => {
   }
 }
 
-// 移动节点
-const moveNode = (direction) => {
-  if (!selectedNodeId.value) {
-    ElMessage.warning('请先选择节点')
+// 搜索杀伤链
+const searchKillChains = async () => {
+  if (!targetNodeId.value) {
+    ElMessage.warning('请先选择敌方目标')
     return
   }
-
-  const node = displayNodes.value.find(n => n.id === selectedNodeId.value)
-  if (!node || node.hp <= 0) return
-
-  const step = 30
-  let newX = node.x
-  let newY = node.y
-
-  switch (direction) {
-    case 'up': newY = node.y - step; break
-    case 'down': newY = node.y + step; break
-    case 'left': newX = node.x - step; break
-    case 'right': newX = node.x + step; break
+  
+  searching.value = true
+  showChainList.value = true
+  
+  try {
+    addLog(`━━━━ 开始搜索杀伤链 ━━━━`, 'info')
+    const targetNode = redNodes.value.find(n => n.id === targetNodeId.value)
+    addLog(`目标: ${targetNode?.name}`, 'info')
+    
+    // 创建搜索引擎
+    const searchEngine = new KillChainSearchEngine(
+      displayNodes.value,
+      networkStore.edges
+    )
+    
+    // 执行搜索
+    const result = searchEngine.searchKillChains(targetNodeId.value)
+    
+    if (result.success) {
+      killChains.value = result.killChains
+      addLog(`✓ 找到 ${result.killChains.length} 条可行杀伤链`, 'success')
+      
+      // 显示每条杀伤链的信息
+      result.killChains.forEach((chain, idx) => {
+        const desc = searchEngine.getChainDescription(chain)
+        addLog(`  ${idx + 1}. ${desc}`, 'info')
+      })
+      
+      ElMessage.success(`找到 ${result.killChains.length} 条杀伤链`)
+      
+      // 重绘画布（显示所有edges）
+      drawBattlefield()
+    } else {
+      killChains.value = []
+      addLog(`✗ 未找到杀伤链`, 'warning')
+      addLog(`原因: ${result.reason}`, 'warning')
+      
+      // 显示详细分析
+      if (result.analysis) {
+        addLog(`━━ 网络状态分析 ━━`, 'info')
+        Object.entries(result.analysis.networkStatus || {}).forEach(([key, value]) => {
+          addLog(`  ${key}: ${value}`, 'info')
+        })
+        
+        if (result.analysis.suggestions) {
+          addLog(`━━ 建议 ━━`, 'info')
+          result.analysis.suggestions.forEach(s => {
+            addLog(`  • ${s}`, 'info')
+          })
+        }
+      }
+      
+      ElMessage.warning(result.reason)
+    }
+    
+    addLog(`━━━━━━━━━━━━━━━━━━`, 'info')
+    
+  } catch (error) {
+    console.error('搜索错误:', error)
+    ElMessage.error('搜索过程出错: ' + error.message)
+  } finally {
+    searching.value = false
   }
+}
 
-  networkStore.updateNode(selectedNodeId.value, { x: newX, y: newY })
+// 选择杀伤链
+const selectChain = (chainId) => {
+  selectedChainId.value = chainId
   drawBattlefield()
-
-  const dirMap = { up: '北', down: '南', left: '西', right: '东' }
-  addLog(`${node.name} 向${dirMap[direction]}移动`)
+  
+  const chain = killChains.value.find(c => c.id === chainId)
+  if (chain) {
+    addLog(`选中杀伤链: ${chain.nodeDetails.map(n => n.name).join(' → ')}`, 'success')
+  }
 }
 
 // 执行打击
-const executeAttack = () => {
-  if (!selectedNodeId.value || !targetNodeId.value) {
-    ElMessage.warning('请选择攻击节点和目标')
+const executeStrike = () => {
+  const chain = killChains.value.find(c => c.id === selectedChainId.value)
+  if (!chain) return
+  
+  const target = displayNodes.value.find(n => n.id === targetNodeId.value)
+  if (!target || target.hp <= 0) {
+    ElMessage.warning('目标已被摧毁')
     return
   }
-
-  const attacker = displayNodes.value.find(n => n.id === selectedNodeId.value)
-  const target = displayNodes.value.find(n => n.id === targetNodeId.value)
-
-  if (!attacker || !target || attacker.hp <= 0 || target.hp <= 0) return
-
-  ctx.save()
-  ctx.translate(offsetX.value, offsetY.value)
-  ctx.scale(scale.value, scale.value)
-
-  ctx.strokeStyle = '#FF6B6B'
-  ctx.lineWidth = 3
-  ctx.setLineDash([])
-  ctx.beginPath()
-  ctx.moveTo(attacker.x, attacker.y)
-  ctx.lineTo(target.x, target.y)
-  ctx.stroke()
-
-  ctx.restore()
-
-  setTimeout(() => {
-    const damage = Math.floor(Math.random() * 30) + 25
+  
+  addLog(`━━━━ 执行打击 ━━━━`, 'danger')
+  addLog(`使用杀伤链: ${chain.nodeDetails.map(n => n.name).join(' → ')}`, 'info')
+  addLog(`杀伤链效能: ${(chain.effectiveness * 100).toFixed(1)}%`, 'info')
+  
+  // 计算伤害（基于杀伤链效能）
+  const baseDamage = 30
+  const damage = Math.floor(baseDamage * (1 + chain.effectiveness))
+  
+  // 判定是否命中（基于效能）
+  const hit = Math.random() < chain.effectiveness
+  
+  if (hit) {
     const newHp = Math.max(0, target.hp - damage)
-
     networkStore.updateNode(target.id, { hp: newHp })
-    drawBattlefield()
-
+    
+    addLog(`✓ 打击命中! 造成 ${damage} 点伤害`, 'danger')
+    addLog(`目标剩余HP: ${newHp}`, 'info')
+    
     if (newHp === 0) {
-      addLog(`🎯 ${attacker.name} 摧毁了 ${target.name}!`, 'danger')
-      ElMessage.success(`成功摧毁 ${target.name}!`)
-    } else {
-      addLog(`⚔️ ${attacker.name} 对 ${target.name} 造成 ${damage} 点伤害`, 'warning')
+      addLog(`✓✓ 目标已摧毁!`, 'success')
+      ElMessage.success(`${target.name} 已被摧毁！`)
     }
-
+    
     attackCount.value++
-  }, 300)
+    const previousHits = Math.round((hitRate.value / 100) * (attackCount.value - 1))
+    hitRate.value = ((previousHits + 1) / attackCount.value) * 100
+  } else {
+    addLog(`✗ 打击脱靶`, 'warning')
+    attackCount.value++
+    const previousHits = Math.round((hitRate.value / 100) * (attackCount.value - 1))
+    hitRate.value = (previousHits / attackCount.value) * 100
+  }
+  
+  addLog(`━━━━━━━━━━━━━━━━━━`, 'info')
+  
+  drawBattlefield()
 }
+
 
 // 切换推演
 const toggleSimulation = () => {
@@ -881,6 +1109,11 @@ const resetAll = () => {
   selectedNodeId.value = null
   targetNodeId.value = null
   simStatus.value = 'idle'
+  
+  // 清空杀伤链搜索结果
+  killChains.value = []
+  selectedChainId.value = null
+  showChainList.value = false
 
   drawBattlefield()
   addLog('系统已重置', 'info')
@@ -1178,5 +1411,44 @@ onUnmounted(() => {
 .log-danger {
   border-left-color: #F56C6C;
   background: #fef0f0;
+}
+
+.kill-chain-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chain-item {
+  padding: 12px;
+  border: 1px solid #DCDFE6;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: #fff;
+}
+
+.chain-item:hover {
+  border-color: #409EFF;
+  background: #ECF5FF;
+}
+
+.chain-item.chain-selected {
+  border-color: #FFD700;
+  background: #FFFBF0;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.3);
+}
+
+.chain-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.chain-path {
+  font-size: 12px;
+  color: #606266;
+  line-height: 1.5;
+  word-break: break-all;
 }
 </style>
