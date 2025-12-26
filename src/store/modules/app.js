@@ -3,30 +3,24 @@ import { defineStore } from 'pinia'
 export const useAppStore = defineStore('app', {
   state: () => ({
     sidebarCollapsed: false,
-    device: 'desktop',
-    theme: 'light'
+    device: 'desktop'
   }),
-  
+
+  getters: {
+    isMobile: (state) => state.device === 'mobile'
+  },
+
   actions: {
     toggleSidebar() {
       this.sidebarCollapsed = !this.sidebarCollapsed
     },
-    
-    closeSidebar() {
-      this.sidebarCollapsed = true
+
+    setSidebarCollapsed(collapsed) {
+      this.sidebarCollapsed = collapsed
     },
-    
-    openSidebar() {
-      this.sidebarCollapsed = false
-    },
-    
+
     setDevice(device) {
       this.device = device
-    },
-    
-    setTheme(theme) {
-      this.theme = theme
-      document.documentElement.className = theme === 'dark' ? 'dark' : ''
     }
   }
 })

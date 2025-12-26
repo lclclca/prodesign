@@ -48,13 +48,13 @@
 
       <div class="login-tips">
         <el-alert
-          title="演示账号"
+          title="演示说明"
           type="info"
           :closable="false"
         >
-          <p>用户名：admin / 密码：任意</p>
+          <p>输入任意用户名即可登录系统</p>
           <p style="margin-top: 5px; font-size: 12px; opacity: 0.8;">
-            注：当前使用Mock数据，后端接口未连接
+            建议用户名：admin 或其他任意名称
           </p>
         </el-alert>
       </div>
@@ -88,30 +88,21 @@ const loginRules = {
     { required: true, message: '请输入用户名', trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码长度至少6位', trigger: 'blur' }
+    { required: true, message: '请输入密码', trigger: 'blur' }
   ]
 }
 
 const handleLogin = () => {
   loginFormRef.value.validate(async (valid) => {
     if (!valid) {
-      console.log('表单验证失败')
       return
     }
 
-    console.log('开始登录流程...')
     loading.value = true
     try {
-      console.log('调用 userStore.login()...')
       await userStore.login(loginForm)
-      console.log('userStore.login() 成功')
-
       ElMessage.success('登录成功')
-      console.log('准备跳转到首页...')
-
       await router.push('/')
-      console.log('路由跳转完成')
     } catch (error) {
       console.error('登录失败:', error)
       ElMessage.error(error.message || '登录失败')

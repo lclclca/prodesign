@@ -7,7 +7,7 @@
         <el-divider direction="vertical" />
         <span class="project-name">{{ currentProject.name || '未命名项目' }}</span>
         <el-divider direction="vertical" />
-        
+
         <!-- 网络模式切换 -->
         <el-radio-group v-model="networkMode" size="default" @change="handleNetworkModeChange">
           <el-radio-button value="friendly">我方网络</el-radio-button>
@@ -16,6 +16,13 @@
         </el-radio-group>
       </div>
       <div class="toolbar-right">
+        <!-- 导入导出按钮 -->
+        <el-button @click="handleExportNetwork" :icon="Download">
+          导出网络
+        </el-button>
+        <el-button @click="handleImportNetwork" :icon="Upload">
+          导入网络
+        </el-button>
         <el-button @click="handleSaveProject" :icon="Document" type="primary">
           保存项目
         </el-button>
@@ -68,23 +75,86 @@
             </div>
           </template>
           <div class="tools">
-            <el-button 
-              @click="handleAutoConnect" 
+                <!-- 新增：添加节点模式切换 -->
+    <el-divider content-position="left">添加节点模式</el-divider>
+    <el-radio-group v-model="addNodeMode" size="small" style="width: 100%; margin-bottom: 15px;">
+      <el-radio-button value="quick" style="width: 50%;">
+        <span style="font-size: 12px;">快速添加</span>
+      </el-radio-button>
+      <el-radio-button value="from-equipment" style="width: 50%;">
+        <span style="font-size: 12px;">选择装备</span>
+      </el-radio-button>
+    </el-radio-group>
+
+    <!-- 提示信息 -->
+    <el-alert
+      v-if="addNodeMode === 'from-equipment'"
+      type="info"
+      :closable="false"
+      style="margin-bottom: 10px;"
+    >
+      <template #default>
+        <div style="font-size: 12px;">
+          点击画布选择装备放置
+        </div>
+      </template>
+    </el-alert>
+
+    <el-divider />
+            <!-- 操作模式切换 -->
+            <el-radio-group v-model="operationMode" size="small" style="width: 100%; margin-bottom: 10px;">
+              <el-radio-button value="add" style="flex: 1;">添加</el-radio-button>
+              <el-radio-button value="drag" style="flex: 1;">拖拽</el-radio-button>
+              <el-radio-button value="connect" style="flex: 1;">连接</el-radio-button>
+            </el-radio-group>
+
+            <el-button
+              @click="handleAutoConnect"
               :icon="Connection"
-              type="primary" 
+              type="primary"
               :loading="isConnecting"
               style="width: 100%; margin-bottom: 10px;"
             >
               自动生成连接
             </el-button>
-            <el-button 
-              @click="toggleDeleteMode" 
+            <el-button
+              @click="toggleDeleteMode"
               :icon="Delete"
               :type="deleteMode ? 'danger' : 'default'"
               style="width: 100%; margin-bottom: 10px;"
             >
               {{ deleteMode ? '退出删除模式' : '删除模式' }}
             </el-button>
+
+            <!-- 视图控制 -->
+            <el-divider content-position="left">视图控制</el-divider>
+            <el-button-group style="width: 100%; margin-bottom: 10px;">
+              <el-button @click="handleZoomIn" :icon="ZoomIn" style="flex: 1;">放大</el-button>
+              <el-button @click="handleZoomOut" :icon="ZoomOut" style="flex: 1;">缩小</el-button>
+              <el-button @click="handleResetView" :icon="Refresh" style="flex: 1;">重置</el-button>
+            </el-button-group>
+
+            <!-- 网格开关 -->
+            <el-checkbox v-model="showGrid" @change="handleGridToggle" style="margin-bottom: 10px;">
+              显示网格背景
+            </el-checkbox>
+
+            <!-- 布局算法 -->
+            <el-divider content-position="left">自动布局</el-divider>
+            <el-select v-model="selectedLayout" placeholder="选择布局" style="width: 100%; margin-bottom: 10px;">
+              <el-option label="圆形布局" value="circle" />
+              <el-option label="网格布局" value="grid" />
+              <el-option label="层次布局" value="hierarchy" />
+              <el-option label="力导向布局" value="force" />
+            </el-select>
+            <el-button
+              @click="applyLayout"
+              :icon="Position"
+              style="width: 100%; margin-bottom: 10px;"
+            >
+              应用布局
+            </el-button>
+
             <el-divider />
             <div class="stats">
               <div class="stat-item">
@@ -103,6 +173,10 @@
                 <span class="label">连接数量：</span>
                 <span class="value">{{ visibleEdges.length }}</span>
               </div>
+              <div class="stat-item">
+                <span class="label">缩放比例：</span>
+                <span class="value">{{ (viewTransform.scale * 100).toFixed(0) }}%</span>
+              </div>
             </div>
           </div>
         </el-card>
@@ -113,11 +187,29 @@
         <svg
           ref="svgCanvas"
           class="network-svg"
+          :class="{ 'show-grid': showGrid }"
           @click="handleCanvasClick"
+          @mousedown="handleCanvasMouseDown"
+          @mousemove="handleCanvasMouseMove"
+          @mouseup="handleCanvasMouseUp"
+          @wheel="handleCanvasWheel"
           @contextmenu.prevent
         >
-          <!-- 定义箭头标记 -->
+          <!-- 定义网格图案 -->
           <defs>
+            <pattern id="grid-pattern" width="50" height="50" patternUnits="userSpaceOnUse">
+              <circle cx="0" cy="0" r="1" fill="#d0d0d0" />
+              <circle cx="25" cy="0" r="0.5" fill="#e0e0e0" />
+              <circle cx="50" cy="0" r="1" fill="#d0d0d0" />
+              <circle cx="0" cy="25" r="0.5" fill="#e0e0e0" />
+              <circle cx="25" cy="25" r="0.5" fill="#e0e0e0" />
+              <circle cx="50" cy="25" r="0.5" fill="#e0e0e0" />
+              <circle cx="0" cy="50" r="1" fill="#d0d0d0" />
+              <circle cx="25" cy="50" r="0.5" fill="#e0e0e0" />
+              <circle cx="50" cy="50" r="1" fill="#d0d0d0" />
+            </pattern>
+
+            <!-- 箭头标记 -->
             <marker
               id="arrowhead-detection-blue"
               markerWidth="10"
@@ -190,115 +282,154 @@
             </marker>
           </defs>
 
-          <!-- 绘制连接线 -->
-          <g class="edges-layer">
-            <g
-              v-for="edge in visibleEdges"
-              :key="edge.id"
-              class="edge"
-              @click.stop="handleEdgeClick(edge)"
-            >
+          <!-- 网格背景 -->
+          <rect v-if="showGrid" x="-10000" y="-10000" width="20000" height="20000" fill="url(#grid-pattern)" opacity="0.5" />
+
+          <!-- 主画布组 - 应用变换 -->
+          <g :transform="getCanvasTransform()">
+            <!-- 绘制连接线 -->
+            <g class="edges-layer">
+              <g
+                v-for="edge in visibleEdges"
+                :key="edge.id"
+                class="edge"
+                @click.stop="handleEdgeClick(edge)"
+              >
+                <line
+                  :x1="getNodeById(edge.source)?.x"
+                  :y1="getNodeById(edge.source)?.y"
+                  :x2="getNodeById(edge.target)?.x"
+                  :y2="getNodeById(edge.target)?.y"
+                  :stroke="getEdgeColor(edge)"
+                  :stroke-width="deleteMode ? '4' : '2'"
+                  :stroke-dasharray="edge.crossFaction ? '5,5' : 'none'"
+                  :marker-end="getEdgeMarker(edge)"
+                  :class="{ 'edge-deletable': deleteMode, 'edge-out-of-range': isEdgeOutOfRange(edge) }"
+                />
+                <text
+                  :x="(getNodeById(edge.source)?.x + getNodeById(edge.target)?.x) / 2"
+                  :y="(getNodeById(edge.source)?.y + getNodeById(edge.target)?.y) / 2"
+                  text-anchor="middle"
+                  class="edge-label"
+                  :fill="getEdgeColor(edge)"
+                >
+                  {{ edge.label }}
+                </text>
+              </g>
+
+              <!-- 正在创建的连接线（预览） -->
               <line
-                :x1="getNodeById(edge.source)?.x"
-                :y1="getNodeById(edge.source)?.y"
-                :x2="getNodeById(edge.target)?.x"
-                :y2="getNodeById(edge.target)?.y"
-                :stroke="getEdgeColor(edge)"
-                :stroke-width="deleteMode ? '4' : '2'"
-                :stroke-dasharray="edge.crossFaction ? '5,5' : 'none'"
-                :marker-end="getEdgeMarker(edge)"
-                :class="{ 'edge-deletable': deleteMode }"
-              />
-              <text
-                :x="(getNodeById(edge.source)?.x + getNodeById(edge.target)?.x) / 2"
-                :y="(getNodeById(edge.source)?.y + getNodeById(edge.target)?.y) / 2"
-                text-anchor="middle"
-                class="edge-label"
-                :fill="getEdgeColor(edge)"
-              >
-                {{ edge.label }}
-              </text>
-            </g>
-          </g>
-
-          <!-- 绘制节点 -->
-          <g class="nodes-layer">
-            <g
-              v-for="node in visibleNodes"
-              :key="node.id"
-              class="node"
-              :transform="`translate(${node.x}, ${node.y})`"
-              @click.stop="handleNodeClick(node)"
-              @contextmenu.prevent="handleNodeRightClick(node, $event)"
-            >
-              <!-- 节点半径圈 -->
-              <circle
-                v-if="node.baseType === 'sensor'"
-                :r="getNodeTypeConfig(node.type).detection_radius"
-                :fill="getNodeTypeConfig(node.type).color"
-                opacity="0.1"
-                class="node-radius"
-              />
-              <circle
-                v-if="node.baseType === 'command'"
-                :r="getNodeTypeConfig(node.type).communication_radius"
-                :fill="getNodeTypeConfig(node.type).color"
-                opacity="0.1"
-                class="node-radius"
-              />
-              <circle
-                v-if="node.baseType === 'striker'"
-                :r="getNodeTypeConfig(node.type).strike_radius"
-                :fill="getNodeTypeConfig(node.type).color"
-                opacity="0.1"
-                class="node-radius"
-              />
-
-              <!-- 节点主体 -->
-              <circle
-                r="20"
-                :fill="getNodeTypeConfig(node.type).color"
-                stroke="#fff"
-                stroke-width="3"
-                class="node-body"
-                :class="{ 'node-selected': selectedNode?.id === node.id }"
-              />
-              
-              <!-- 节点图标 -->
-              <text
-                text-anchor="middle"
-                dy="0.3em"
-                fill="#fff"
-                font-size="16"
-                class="node-icon-text"
-              >
-                {{ getNodeIconText(node.baseType) }}
-              </text>
-
-              <!-- 阵营标识小圆点 -->
-              <circle
-                cx="15"
-                cy="-15"
-                r="6"
-                :fill="node.faction === 'blue' ? '#409EFF' : '#F56C6C'"
-                stroke="#fff"
+                v-if="connectingEdge.source && connectingEdge.preview"
+                :x1="getNodeById(connectingEdge.source)?.x"
+                :y1="getNodeById(connectingEdge.source)?.y"
+                :x2="connectingEdge.preview.x"
+                :y2="connectingEdge.preview.y"
+                stroke="#409EFF"
                 stroke-width="2"
-                class="faction-indicator"
+                stroke-dasharray="5,5"
+                class="edge-preview"
               />
+            </g>
 
-              <!-- 节点标签 -->
-              <text
-                text-anchor="middle"
-                dy="35"
-                fill="#333"
-                font-size="12"
-                class="node-label"
+            <!-- 绘制节点 -->
+            <g class="nodes-layer">
+              <g
+                v-for="node in visibleNodes"
+                :key="node.id"
+                class="node"
+                :class="{
+                  'node-dragging': draggingNode?.id === node.id,
+                  'node-connecting': connectingEdge.source === node.id
+                }"
+                :transform="`translate(${node.x}, ${node.y})`"
+                @mousedown.stop="handleNodeMouseDown(node, $event)"
+                @click.stop="handleNodeClick(node)"
+                @contextmenu.prevent="handleNodeRightClick(node, $event)"
               >
-                {{ node.label }}
-              </text>
+                <!-- 节点半径圈 -->
+                <circle
+                  v-if="node.baseType === 'sensor'"
+                  :r="getNodeTypeConfig(node.type).detection_radius"
+                  :fill="getNodeTypeConfig(node.type).color"
+                  opacity="0.1"
+                  class="node-radius"
+                />
+                <circle
+                  v-if="node.baseType === 'command'"
+                  :r="getNodeTypeConfig(node.type).communication_radius"
+                  :fill="getNodeTypeConfig(node.type).color"
+                  opacity="0.1"
+                  class="node-radius"
+                />
+                <circle
+                  v-if="node.baseType === 'striker'"
+                  :r="getNodeTypeConfig(node.type).strike_radius"
+                  :fill="getNodeTypeConfig(node.type).color"
+                  opacity="0.1"
+                  class="node-radius"
+                />
+
+                <!-- 节点主体 -->
+                <circle
+                  r="20"
+                  :fill="getNodeTypeConfig(node.type).color"
+                  stroke="#fff"
+                  stroke-width="3"
+                  class="node-body"
+                  :class="{ 'node-selected': selectedNode?.id === node.id }"
+                />
+
+                <!-- 节点图标 -->
+                <text
+                  text-anchor="middle"
+                  dy="0.3em"
+                  fill="#fff"
+                  font-size="16"
+                  class="node-icon-text"
+                >
+                  {{ getNodeIconText(node.baseType) }}
+                </text>
+
+                <!-- 阵营标识小圆点 -->
+                <circle
+                  cx="15"
+                  cy="-15"
+                  r="6"
+                  :fill="node.faction === 'blue' ? '#409EFF' : '#F56C6C'"
+                  stroke="#fff"
+                  stroke-width="2"
+                  class="faction-indicator"
+                />
+
+                <!-- 节点标签 -->
+                <text
+                  text-anchor="middle"
+                  dy="35"
+                  fill="#333"
+                  font-size="12"
+                  class="node-label"
+                >
+                  {{ node.label }}
+                </text>
+              </g>
             </g>
           </g>
         </svg>
+
+        <!-- 视图控制浮动按钮 -->
+        <div class="view-controls">
+          <el-button-group>
+            <el-tooltip content="放大" placement="left">
+              <el-button :icon="ZoomIn" @click="handleZoomIn" circle />
+            </el-tooltip>
+            <el-tooltip content="缩小" placement="left">
+              <el-button :icon="ZoomOut" @click="handleZoomOut" circle />
+            </el-tooltip>
+            <el-tooltip content="适应视图" placement="left">
+              <el-button :icon="FullScreen" @click="handleFitView" circle />
+            </el-tooltip>
+          </el-button-group>
+        </div>
       </div>
 
       <!-- 右侧属性面板 -->
@@ -335,10 +466,10 @@
               <el-input v-model="selectedNode.label" @change="updateNodeLabel" />
             </el-form-item>
             <el-form-item label="X坐标">
-              <el-input-number v-model="selectedNode.x" disabled />
+              <el-input-number v-model="selectedNode.x" :step="10" @change="updateNodePosition" style="width: 100%;" />
             </el-form-item>
             <el-form-item label="Y坐标">
-              <el-input-number v-model="selectedNode.y" disabled />
+              <el-input-number v-model="selectedNode.y" :step="10" @change="updateNodePosition" style="width: 100%;" />
             </el-form-item>
           </el-form>
         </el-card>
@@ -356,16 +487,36 @@
               :closable="false"
               style="margin-bottom: 15px;"
             >
-              <ol style="margin: 10px 0; padding-left: 20px;">
-                <li>在顶部选择网络模式（我方/敌方/混合）</li>
-                <li>在左侧选择节点类型</li>
-                <li>点击画布添加节点</li>
-                <li>点击"自动生成连接"建立网络</li>
-                <li>点击"评估网络"查看分析结果</li>
-                <li>右键点击节点可删除</li>
-              </ol>
+              <div style="margin: 10px 0;">
+                <p><strong>添加节点模式：</strong></p>
+                <ol style="margin: 5px 0; padding-left: 20px;">
+                  <li>选择节点类型</li>
+                  <li>点击画布添加节点</li>
+                </ol>
+
+                <p style="margin-top: 10px;"><strong>拖拽模式：</strong></p>
+                <ol style="margin: 5px 0; padding-left: 20px;">
+                  <li>切换到"拖拽"模式</li>
+                  <li>拖动节点调整位置</li>
+                  <li>超出范围的连接会断开</li>
+                </ol>
+
+                <p style="margin-top: 10px;"><strong>连接模式：</strong></p>
+                <ol style="margin: 5px 0; padding-left: 20px;">
+                  <li>切换到"连接"模式</li>
+                  <li>依次点击两个节点</li>
+                </ol>
+
+                <p style="margin-top: 10px;"><strong>其他操作：</strong></p>
+                <ul style="margin: 5px 0; padding-left: 20px;">
+                  <li>滚轮：缩放视图</li>
+                  <li>Shift+拖动：平移画布</li>
+                  <li>右键节点：删除节点</li>
+                  <li>显示网格：辅助对齐</li>
+                </ul>
+              </div>
             </el-alert>
-            
+
             <div class="legend">
               <h4>网络模式说明</h4>
               <div class="mode-desc">
@@ -373,7 +524,7 @@
                 <p><strong>敌方网络：</strong>只显示敌方（红方）节点和连接</p>
                 <p><strong>混合网络：</strong>显示双方节点，包含对抗连接</p>
               </div>
-              
+
               <h4 style="margin-top: 20px;">节点类型说明</h4>
               <div class="legend-item" v-for="type in allNodeTypes.filter(t => t.faction === 'blue')" :key="type.type">
                 <div class="legend-icon" :style="{ backgroundColor: type.color }"></div>
@@ -483,11 +634,29 @@
         </el-card>
       </div>
     </el-dialog>
+    <!-- 新增：装备选择对话框 -->
+    <EquipmentSelector
+      v-model="showEquipmentSelector"
+      :equipments="equipments"
+      :network-mode="networkMode"
+      @confirm="handleEquipmentSelected"
+    />
+    <!-- 隐藏的文件输入用于导入 -->
+    <input
+      ref="fileInput"
+      type="file"
+      accept=".json"
+      style="display: none"
+      @change="handleFileSelected"
+    />
+
+    <!-- 隐藏的下载链接 -->
+    <a ref="downloadLink" style="display: none;"></a>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Document,
@@ -496,17 +665,25 @@ import {
   Connection,
   Compass,
   Monitor,
-  Aim
+  Aim,
+  Download,
+  Upload,
+  ZoomIn,
+  ZoomOut,
+  Refresh,
+  Position,
+  FullScreen
 } from '@element-plus/icons-vue'
 import { generateConnections } from '@/utils/networkGenerator'
-import { evaluateNetwork } from '@/utils/networkEvaluator'
-
-// 网络模式：friendly(我方), enemy(敌方), mixed(混合)
+import FloatingLogoutButton from '@/components/Layout/FloatingLogoutButton.vue'
+import EquipmentSelector from '@/components/EquipmentSelector.vue'
+// ==================== 基础状态 ====================
 const networkMode = ref('mixed')
+const operationMode = ref('add')
+const showGrid = ref(true) // 默认显示网格
 
-// 所有节点类型定义（包含敌我双方）
+// 所有节点类型定义
 const allNodeTypes = ref([
-  // 我方节点
   {
     type: 'sensor_blue',
     baseType: 'sensor',
@@ -541,7 +718,6 @@ const allNodeTypes = ref([
     communication_radius: 80,
     strike_radius: 120
   },
-  // 敌方节点
   {
     type: 'sensor_red',
     baseType: 'sensor',
@@ -578,7 +754,6 @@ const allNodeTypes = ref([
   }
 ])
 
-// 根据网络模式过滤节点类型
 const filteredNodeTypes = computed(() => {
   if (networkMode.value === 'friendly') {
     return allNodeTypes.value.filter(t => t.faction === 'blue')
@@ -589,13 +764,14 @@ const filteredNodeTypes = computed(() => {
   }
 })
 
-// 当前项目信息
 const currentProject = ref({
   name: '新建作战网络',
   id: null
 })
-
-// 画布状态
+const equipments = ref([])
+const showEquipmentSelector = ref(false)
+const addNodeMode = ref('quick') // 'quick' | 'from-equipment'
+const pendingNodePosition = ref(null)
 const nodes = ref([])
 const edges = ref([])
 const selectedNodeType = ref('sensor_blue')
@@ -605,15 +781,38 @@ const isConnecting = ref(false)
 const nodeCounter = ref(0)
 const edgeCounter = ref(0)
 
-// 画布引用
 const svgCanvas = ref(null)
 const canvasArea = ref(null)
+const fileInput = ref(null)
+const downloadLink = ref(null)
 
-// 评估结果
 const showEvaluationDialog = ref(false)
 const evaluationResult = ref(null)
 
-// 根据网络模式过滤显示的节点
+// 视图变换状态
+const viewTransform = reactive({
+  scale: 1,
+  translateX: 0,
+  translateY: 0
+})
+
+// 拖拽状态
+const draggingNode = ref(null)
+const dragOffset = reactive({ x: 0, y: 0 })
+const isPanning = ref(false)
+const panStart = reactive({ x: 0, y: 0 })
+
+// 连接状态
+const connectingEdge = reactive({
+  source: null,
+  target: null,
+  preview: null
+})
+
+// 布局状态
+const selectedLayout = ref('circle')
+
+// ==================== 计算属性 ====================
 const visibleNodes = computed(() => {
   if (networkMode.value === 'friendly') {
     return nodes.value.filter(n => n.faction === 'blue')
@@ -624,51 +823,598 @@ const visibleNodes = computed(() => {
   }
 })
 
-// 根据网络模式过滤显示的连接
 const visibleEdges = computed(() => {
   return edges.value.filter(edge => {
     const sourceNode = getNodeById(edge.source)
     const targetNode = getNodeById(edge.target)
-    
+
     if (!sourceNode || !targetNode) return false
-    
+
     if (networkMode.value === 'friendly') {
       return sourceNode.faction === 'blue' && targetNode.faction === 'blue'
     } else if (networkMode.value === 'enemy') {
       return sourceNode.faction === 'red' && targetNode.faction === 'red'
     } else {
-      return true // 混合模式显示所有连接
+      return true
     }
   })
 })
 
-// 统计节点数量
 const friendlyNodeCount = computed(() => nodes.value.filter(n => n.faction === 'blue').length)
 const enemyNodeCount = computed(() => nodes.value.filter(n => n.faction === 'red').length)
+// ========== 在方法区域添加（约第850行附近） ==========
+// 从装备创建节点
+const handleEquipmentSelected = (equipment) => {
+  if (!pendingNodePosition.value) return
 
-// 网络模式切换
+  // 映射装备类型到节点类型
+  const nodeType = `${equipment.type}_${equipment.faction}`
+  const typeConfig = getNodeTypeConfig(nodeType)
+
+  if (!typeConfig) {
+    ElMessage.error('装备类型映射失败')
+    return
+  }
+
+  // 创建节点，包含装备信息
+  const newNode = {
+    id: `node_${nodeCounter.value++}`,
+    type: nodeType,
+    baseType: equipment.type,
+    faction: equipment.faction,
+    x: pendingNodePosition.value.x,
+    y: pendingNodePosition.value.y,
+    label: equipment.name,
+
+    // 保存完整的装备信息
+    equipmentId: equipment.id,
+    equipmentCode: equipment.code,
+    equipmentData: {
+      name: equipment.name,
+      code: equipment.code,
+      manufacturer: equipment.manufacturer,
+      detection_range: equipment.detection_range || 0,
+      detection_accuracy: equipment.detection_accuracy || 0,
+      communication_range: equipment.communication_range || 0,
+      command_capacity: equipment.command_capacity || 0,
+      strike_range: equipment.strike_range || 0,
+      attack_power: equipment.attack_power || 0
+    }
+  }
+
+  nodes.value.push(newNode)
+  ElMessage.success(`已添加装备节点: ${equipment.name}`)
+
+  // 清空待放置位置
+  pendingNodePosition.value = null
+}
+// ==================== 新增：判断边是否超出范围 ====================
+const isEdgeOutOfRange = (edge) => {
+  const sourceNode = getNodeById(edge.source)
+  const targetNode = getNodeById(edge.target)
+
+  if (!sourceNode || !targetNode) return true
+
+  // 跨阵营连接不检查范围
+  if (sourceNode.faction !== targetNode.faction) return false
+
+  const dx = targetNode.x - sourceNode.x
+  const dy = targetNode.y - sourceNode.y
+  const distance = Math.sqrt(dx * dx + dy * dy)
+
+  const sourceConfig = getNodeTypeConfig(sourceNode.type)
+
+  // 根据边类型判断
+  if (edge.type === 'detection' && sourceNode.baseType === 'sensor') {
+    return distance > sourceConfig.detection_radius
+  } else if (edge.type === 'communication') {
+    return distance > sourceConfig.communication_radius
+  } else if (edge.type === 'strike' && sourceNode.baseType === 'striker') {
+    return distance > sourceConfig.strike_radius
+  }
+
+  return false
+}
+
+// 监听节点位置变化，自动清理超出范围的连接
+watch(() => nodes.value.map(n => `${n.x},${n.y}`).join('|'), () => {
+  if (draggingNode.value) {
+    cleanupOutOfRangeEdges()
+  }
+}, { deep: true })
+
+const cleanupOutOfRangeEdges = () => {
+  const edgesToRemove = []
+
+  edges.value.forEach(edge => {
+    if (isEdgeOutOfRange(edge)) {
+      edgesToRemove.push(edge.id)
+    }
+  })
+
+  if (edgesToRemove.length > 0) {
+    edges.value = edges.value.filter(e => !edgesToRemove.includes(e.id))
+  }
+}
+
+// ==================== 视图变换方法 ====================
+const getCanvasTransform = () => {
+  return `translate(${viewTransform.translateX}, ${viewTransform.translateY}) scale(${viewTransform.scale})`
+}
+
+const handleZoomIn = () => {
+  viewTransform.scale = Math.min(viewTransform.scale * 1.2, 3)
+  ElMessage.success(`缩放: ${(viewTransform.scale * 100).toFixed(0)}%`)
+}
+
+const handleZoomOut = () => {
+  viewTransform.scale = Math.max(viewTransform.scale * 0.8, 0.3)
+  ElMessage.success(`缩放: ${(viewTransform.scale * 100).toFixed(0)}%`)
+}
+
+const handleResetView = () => {
+  viewTransform.scale = 1
+  viewTransform.translateX = 0
+  viewTransform.translateY = 0
+  ElMessage.success('视图已重置')
+}
+
+const handleFitView = () => {
+  if (nodes.value.length === 0) {
+    handleResetView()
+    return
+  }
+
+  const xs = nodes.value.map(n => n.x)
+  const ys = nodes.value.map(n => n.y)
+  const minX = Math.min(...xs) - 50
+  const maxX = Math.max(...xs) + 50
+  const minY = Math.min(...ys) - 50
+  const maxY = Math.max(...ys) + 50
+
+  const width = maxX - minX
+  const height = maxY - minY
+
+  const canvasRect = canvasArea.value.getBoundingClientRect()
+  const scaleX = (canvasRect.width - 100) / width
+  const scaleY = (canvasRect.height - 100) / height
+  const scale = Math.min(scaleX, scaleY, 1)
+
+  viewTransform.scale = scale
+  viewTransform.translateX = (canvasRect.width - width * scale) / 2 - minX * scale
+  viewTransform.translateY = (canvasRect.height - height * scale) / 2 - minY * scale
+
+  ElMessage.success('已适应视图')
+}
+
+const handleCanvasWheel = (event) => {
+  event.preventDefault()
+
+  const delta = event.deltaY > 0 ? 0.9 : 1.1
+  const newScale = Math.max(0.3, Math.min(3, viewTransform.scale * delta))
+
+  const rect = svgCanvas.value.getBoundingClientRect()
+  const mouseX = event.clientX - rect.left
+  const mouseY = event.clientY - rect.top
+
+  const scaleRatio = newScale / viewTransform.scale
+  viewTransform.translateX = mouseX - (mouseX - viewTransform.translateX) * scaleRatio
+  viewTransform.translateY = mouseY - (mouseY - viewTransform.translateY) * scaleRatio
+  viewTransform.scale = newScale
+}
+
+const handleGridToggle = () => {
+  ElMessage.success(showGrid.value ? '已显示网格' : '已隐藏网格')
+}
+
+// ==================== 节点拖拽方法 ====================
+const handleNodeMouseDown = (node, event) => {
+  if (operationMode.value === 'drag') {
+    event.stopPropagation()
+    draggingNode.value = node
+
+    const rect = svgCanvas.value.getBoundingClientRect()
+    const mouseX = (event.clientX - rect.left - viewTransform.translateX) / viewTransform.scale
+    const mouseY = (event.clientY - rect.top - viewTransform.translateY) / viewTransform.scale
+
+    dragOffset.x = mouseX - node.x
+    dragOffset.y = mouseY - node.y
+  } else if (operationMode.value === 'connect') {
+    event.stopPropagation()
+    handleConnectModeClick(node)
+  }
+}
+
+const handleCanvasMouseDown = (event) => {
+  if (event.button === 1 || (event.button === 0 && event.shiftKey)) {
+    isPanning.value = true
+    panStart.x = event.clientX
+    panStart.y = event.clientY
+    event.preventDefault()
+  }
+}
+
+const handleCanvasMouseMove = (event) => {
+  if (draggingNode.value && operationMode.value === 'drag') {
+    const rect = svgCanvas.value.getBoundingClientRect()
+    const mouseX = (event.clientX - rect.left - viewTransform.translateX) / viewTransform.scale
+    const mouseY = (event.clientY - rect.top - viewTransform.translateY) / viewTransform.scale
+
+    draggingNode.value.x = mouseX - dragOffset.x
+    draggingNode.value.y = mouseY - dragOffset.y
+  }
+
+  if (isPanning.value) {
+    const dx = event.clientX - panStart.x
+    const dy = event.clientY - panStart.y
+
+    viewTransform.translateX += dx
+    viewTransform.translateY += dy
+
+    panStart.x = event.clientX
+    panStart.y = event.clientY
+  }
+
+  if (connectingEdge.source && operationMode.value === 'connect') {
+    const rect = svgCanvas.value.getBoundingClientRect()
+    connectingEdge.preview = {
+      x: (event.clientX - rect.left - viewTransform.translateX) / viewTransform.scale,
+      y: (event.clientY - rect.top - viewTransform.translateY) / viewTransform.scale
+    }
+  }
+}
+
+const handleCanvasMouseUp = (event) => {
+  if (draggingNode.value) {
+    draggingNode.value = null
+  }
+
+  if (isPanning.value) {
+    isPanning.value = false
+  }
+}
+
+const updateNodePosition = () => {
+  cleanupOutOfRangeEdges()
+  ElMessage.success('位置已更新')
+}
+
+// ==================== 手动连接方法 ====================
+const handleConnectModeClick = (node) => {
+  if (!connectingEdge.source) {
+    connectingEdge.source = node.id
+    ElMessage.info(`已选择源节点: ${node.label}，请点击目标节点`)
+  } else if (connectingEdge.source === node.id) {
+    connectingEdge.source = null
+    connectingEdge.preview = null
+    ElMessage.info('已取消连接')
+  } else {
+    createManualEdge(connectingEdge.source, node.id)
+    connectingEdge.source = null
+    connectingEdge.preview = null
+  }
+}
+
+const createManualEdge = (sourceId, targetId) => {
+  const exists = edges.value.some(
+    e => (e.source === sourceId && e.target === targetId) ||
+         (e.source === targetId && e.target === sourceId)
+  )
+
+  if (exists) {
+    ElMessage.warning('该连接已存在')
+    return
+  }
+
+  const sourceNode = getNodeById(sourceId)
+  const targetNode = getNodeById(targetId)
+
+  const newEdge = {
+    id: `edge_${edgeCounter.value++}`,
+    source: sourceId,
+    target: targetId,
+    type: 'manual',
+    label: '手动连接',
+    crossFaction: sourceNode.faction !== targetNode.faction
+  }
+
+  edges.value.push(newEdge)
+  ElMessage.success(`已创建连接: ${sourceNode.label} → ${targetNode.label}`)
+}
+
+// ==================== 布局算法 ====================
+const applyLayout = () => {
+  if (nodes.value.length === 0) {
+    ElMessage.warning('没有节点可以布局')
+    return
+  }
+
+  switch (selectedLayout.value) {
+    case 'circle':
+      applyCircleLayout()
+      break
+    case 'grid':
+      applyGridLayout()
+      break
+    case 'hierarchy':
+      applyHierarchyLayout()
+      break
+    case 'force':
+      applyForceLayout()
+      break
+  }
+
+  cleanupOutOfRangeEdges()
+  ElMessage.success(`已应用${getLayoutName()}布局`)
+  nextTick(() => handleFitView())
+}
+
+const getLayoutName = () => {
+  const names = {
+    circle: '圆形',
+    grid: '网格',
+    hierarchy: '层次',
+    force: '力导向'
+  }
+  return names[selectedLayout.value] || ''
+}
+
+const applyCircleLayout = () => {
+  const centerX = 400
+  const centerY = 300
+  const radius = Math.min(200, 50 + nodes.value.length * 15)
+
+  nodes.value.forEach((node, index) => {
+    const angle = (2 * Math.PI * index) / nodes.value.length
+    node.x = centerX + radius * Math.cos(angle)
+    node.y = centerY + radius * Math.sin(angle)
+  })
+}
+
+const applyGridLayout = () => {
+  const cols = Math.ceil(Math.sqrt(nodes.value.length))
+  const spacing = 150
+  const startX = 100
+  const startY = 100
+
+  nodes.value.forEach((node, index) => {
+    const row = Math.floor(index / cols)
+    const col = index % cols
+    node.x = startX + col * spacing
+    node.y = startY + row * spacing
+  })
+}
+
+const applyHierarchyLayout = () => {
+  const layers = {
+    sensor: [],
+    command: [],
+    striker: []
+  }
+
+  nodes.value.forEach(node => {
+    if (layers[node.baseType]) {
+      layers[node.baseType].push(node)
+    }
+  })
+
+  let y = 100
+  const spacing = 200
+
+  Object.values(layers).forEach(layer => {
+    if (layer.length > 0) {
+      const startX = 400 - (layer.length - 1) * 100 / 2
+      layer.forEach((node, index) => {
+        node.x = startX + index * 100
+        node.y = y
+      })
+      y += spacing
+    }
+  })
+}
+
+const applyForceLayout = () => {
+  const iterations = 50
+  const repulsionStrength = 5000
+  const attractionStrength = 0.01
+  const centerStrength = 0.01
+  const centerX = 400
+  const centerY = 300
+
+  for (let iter = 0; iter < iterations; iter++) {
+    const forces = nodes.value.map(() => ({ x: 0, y: 0 }))
+
+    for (let i = 0; i < nodes.value.length; i++) {
+      for (let j = i + 1; j < nodes.value.length; j++) {
+        const dx = nodes.value[j].x - nodes.value[i].x
+        const dy = nodes.value[j].y - nodes.value[i].y
+        const distance = Math.sqrt(dx * dx + dy * dy) || 1
+        const force = repulsionStrength / (distance * distance)
+
+        forces[i].x -= force * dx / distance
+        forces[i].y -= force * dy / distance
+        forces[j].x += force * dx / distance
+        forces[j].y += force * dy / distance
+      }
+    }
+
+    edges.value.forEach(edge => {
+      const sourceIdx = nodes.value.findIndex(n => n.id === edge.source)
+      const targetIdx = nodes.value.findIndex(n => n.id === edge.target)
+
+      if (sourceIdx >= 0 && targetIdx >= 0) {
+        const dx = nodes.value[targetIdx].x - nodes.value[sourceIdx].x
+        const dy = nodes.value[targetIdx].y - nodes.value[sourceIdx].y
+        const distance = Math.sqrt(dx * dx + dy * dy) || 1
+
+        forces[sourceIdx].x += attractionStrength * dx
+        forces[sourceIdx].y += attractionStrength * dy
+        forces[targetIdx].x -= attractionStrength * dx
+        forces[targetIdx].y -= attractionStrength * dy
+      }
+    })
+
+    nodes.value.forEach((node, i) => {
+      forces[i].x += (centerX - node.x) * centerStrength
+      forces[i].y += (centerY - node.y) * centerStrength
+    })
+
+    nodes.value.forEach((node, i) => {
+      node.x += forces[i].x
+      node.y += forces[i].y
+    })
+  }
+}
+
+// ==================== 修改：导出方法 - 提供保存路径提示 ====================
+const handleExportNetwork = () => {
+  if (nodes.value.length === 0) {
+    ElMessage.warning('画布为空，无法导出')
+    return
+  }
+
+  const exportData = {
+    version: '1.0',
+    name: currentProject.value.name,
+    networkMode: networkMode.value,
+    timestamp: new Date().toISOString(),
+    metadata: {
+      nodeCount: nodes.value.length,
+      edgeCount: edges.value.length,
+      friendlyNodeCount: friendlyNodeCount.value,
+      enemyNodeCount: enemyNodeCount.value
+    },
+    nodes: nodes.value.map(node => ({
+      id: node.id,
+      type: node.type,
+      baseType: node.baseType,
+      faction: node.faction,
+      label: node.label,
+      x: node.x,
+      y: node.y
+    })),
+    edges: edges.value.map(edge => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      type: edge.type,
+      label: edge.label,
+      crossFaction: edge.crossFaction
+    })),
+    viewTransform: {
+      scale: viewTransform.scale,
+      translateX: viewTransform.translateX,
+      translateY: viewTransform.translateY
+    }
+  }
+
+  const fileName = `network_${currentProject.value.name}_${Date.now()}.json`
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+    type: 'application/json'
+  })
+  const url = URL.createObjectURL(blob)
+
+  const link = downloadLink.value
+  link.href = url
+  link.download = fileName
+  link.click()
+
+  URL.revokeObjectURL(url)
+
+  // 提示保存路径
+  ElMessage.success({
+    message: `网络已导出为: ${fileName}`,
+    duration: 5000,
+    showClose: true
+  })
+}
+
+const handleImportNetwork = () => {
+  fileInput.value.click()
+}
+
+const handleFileSelected = (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result)
+
+      if (!data.nodes || !data.edges) {
+        throw new Error('无效的网络数据格式')
+      }
+
+      ElMessageBox.confirm(
+        `确定要导入网络 "${data.name || '未命名'}" 吗？当前画布内容将被替换。`,
+        '确认导入',
+        {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }
+      ).then(() => {
+        nodes.value = data.nodes
+        edges.value = data.edges
+        networkMode.value = data.networkMode || 'mixed'
+        currentProject.value.name = data.name || '导入的网络'
+
+        if (data.viewTransform) {
+          viewTransform.scale = data.viewTransform.scale
+          viewTransform.translateX = data.viewTransform.translateX
+          viewTransform.translateY = data.viewTransform.translateY
+        }
+
+        nodeCounter.value = Math.max(...nodes.value.map(n => {
+          const match = n.id.match(/\d+/)
+          return match ? parseInt(match[0]) : 0
+        }), 0) + 1
+
+        edgeCounter.value = Math.max(...edges.value.map(e => {
+          const match = e.id.match(/\d+/)
+          return match ? parseInt(match[0]) : 0
+        }), 0) + 1
+
+        selectedNode.value = null
+
+        ElMessage.success(`已导入网络: ${data.name || '未命名'}`)
+        nextTick(() => handleFitView())
+      }).catch(() => {})
+    } catch (error) {
+      ElMessage.error('导入失败: ' + error.message)
+    }
+  }
+
+  reader.readAsText(file)
+  event.target.value = ''
+}
+
+// ==================== 原有方法 ====================
 const handleNetworkModeChange = (mode) => {
   ElMessage.success(`已切换到${mode === 'friendly' ? '我方' : mode === 'enemy' ? '敌方' : '混合'}网络模式`)
-  
-  // 切换模式时，自动选择对应阵营的第一个节点类型
+
   if (mode === 'friendly') {
     selectedNodeType.value = 'sensor_blue'
   } else if (mode === 'enemy') {
     selectedNodeType.value = 'sensor_red'
   }
-  
-  // 清除当前选中的节点（如果该节点在当前模式下不可见）
+
   if (selectedNode.value && !visibleNodes.value.find(n => n.id === selectedNode.value.id)) {
     selectedNode.value = null
   }
+
+  connectingEdge.source = null
+  connectingEdge.preview = null
 }
 
-// 选择节点类型
 const selectNodeType = (type) => {
   selectedNodeType.value = type
   deleteMode.value = false
+  operationMode.value = 'add'
 }
 
+// ========== 完全替换 handleCanvasClick 方法（约第675行） ==========
 // 画布点击事件 - 添加节点
 const handleCanvasClick = (event) => {
   if (deleteMode.value) return
@@ -677,31 +1423,37 @@ const handleCanvasClick = (event) => {
   const x = event.clientX - rect.left
   const y = event.clientY - rect.top
 
-  const typeConfig = getNodeTypeConfig(selectedNodeType.value)
-  const newNode = {
-    id: `node_${nodeCounter.value++}`,
-    type: selectedNodeType.value,
-    baseType: typeConfig.baseType,
-    faction: typeConfig.faction,
-    x: x,
-    y: y,
-    label: `${typeConfig.name}${nodeCounter.value}`
-  }
+  // 根据添加模式决定行为
+  if (addNodeMode.value === 'from-equipment') {
+    // 从装备选择模式
+    pendingNodePosition.value = { x, y }
+    showEquipmentSelector.value = true
+  } else {
+    // 快速添加模式 - 原有逻辑
+    const typeConfig = getNodeTypeConfig(selectedNodeType.value)
+    const newNode = {
+      id: `node_${nodeCounter.value++}`,
+      type: selectedNodeType.value,
+      baseType: typeConfig.baseType,
+      faction: typeConfig.faction,
+      x: x,
+      y: y,
+      label: `${typeConfig.name}${nodeCounter.value}`
+    }
 
-  nodes.value.push(newNode)
-  ElMessage.success(`已添加 ${typeConfig.name}`)
+    nodes.value.push(newNode)
+    ElMessage.success(`已添加 ${typeConfig.name}`)
+  }
 }
 
-// 节点点击事件
 const handleNodeClick = (node) => {
   if (deleteMode.value) {
     handleDeleteNode(node)
-  } else {
+  } else if (operationMode.value === 'add' || operationMode.value === 'drag') {
     selectedNode.value = node
   }
 }
 
-// 节点右键事件
 const handleNodeRightClick = (node, event) => {
   ElMessageBox.confirm(
     `确定要删除节点 "${node.label}" 吗？`,
@@ -716,14 +1468,11 @@ const handleNodeRightClick = (node, event) => {
   }).catch(() => {})
 }
 
-// 删除节点
 const handleDeleteNode = (node) => {
-  // 删除相关的连接
   edges.value = edges.value.filter(
     edge => edge.source !== node.id && edge.target !== node.id
   )
-  
-  // 删除节点
+
   const index = nodes.value.findIndex(n => n.id === node.id)
   if (index > -1) {
     nodes.value.splice(index, 1)
@@ -734,7 +1483,6 @@ const handleDeleteNode = (node) => {
   }
 }
 
-// 连接线点击事件
 const handleEdgeClick = (edge) => {
   if (deleteMode.value) {
     ElMessageBox.confirm(
@@ -755,7 +1503,6 @@ const handleEdgeClick = (edge) => {
   }
 }
 
-// 自动生成连接
 const handleAutoConnect = async () => {
   if (nodes.value.length < 2) {
     ElMessage.warning('至少需要2个节点才能生成连接')
@@ -764,10 +1511,8 @@ const handleAutoConnect = async () => {
 
   isConnecting.value = true
   try {
-    // 使用网络生成算法
     const newEdges = await generateConnections(nodes.value, allNodeTypes.value, networkMode.value)
-    
-    // 重置边的ID
+
     edgeCounter.value = 0
     edges.value = newEdges.map(edge => ({
       ...edge,
@@ -782,42 +1527,139 @@ const handleAutoConnect = async () => {
   }
 }
 
-// 评估网络
+// ==================== 修改：网络评估 - 只评估我方节点 ====================
 const handleEvaluate = async () => {
-  if (nodes.value.length === 0) {
-    ElMessage.warning('画布中没有节点，无法评估')
+  // 只评估我方节点
+  const friendlyNodes = nodes.value.filter(n => n.faction === 'blue')
+
+  if (friendlyNodes.length === 0) {
+    ElMessage.warning('没有我方节点，无法评估')
     return
   }
 
+  // 只包含我方节点之间的连接
+  const friendlyEdges = edges.value.filter(edge => {
+    const sourceNode = getNodeById(edge.source)
+    const targetNode = getNodeById(edge.target)
+    return sourceNode?.faction === 'blue' && targetNode?.faction === 'blue'
+  })
+
   try {
-    evaluationResult.value = await evaluateNetwork(
-      nodes.value, 
-      edges.value, 
-      allNodeTypes.value,
-      networkMode.value
-    )
+    evaluationResult.value = evaluateNetworkLocally(friendlyNodes, friendlyEdges)
     showEvaluationDialog.value = true
   } catch (error) {
     ElMessage.error('评估失败：' + error.message)
   }
 }
 
-// 保存项目
+// 本地评估函数
+const evaluateNetworkLocally = (evalNodes, evalEdges) => {
+  // 检查节点类型存在性
+  const hasSensor = evalNodes.some(n => n.baseType === 'sensor')
+  const hasCommand = evalNodes.some(n => n.baseType === 'command')
+  const hasStriker = evalNodes.some(n => n.baseType === 'striker')
+
+  const vulnerabilities = []
+  const suggestions = []
+
+  if (!hasSensor) {
+    vulnerabilities.push({
+      severity: 'high',
+      title: '缺少传感器节点',
+      description: '网络中没有传感器节点，无法进行目标探测'
+    })
+    suggestions.push({
+      priority: 'high',
+      title: '添加传感器节点',
+      description: '建议至少添加2-3个传感器节点以提供目标探测能力',
+      expected_effect: '提升网络的态势感知能力'
+    })
+  }
+
+  if (!hasCommand) {
+    vulnerabilities.push({
+      severity: 'high',
+      title: '缺少指挥中心节点',
+      description: '网络中没有指挥中心节点，无法进行统一指挥控制'
+    })
+    suggestions.push({
+      priority: 'high',
+      title: '添加指挥中心节点',
+      description: '建议添加1-2个指挥中心节点作为网络核心',
+      expected_effect: '建立统一的指挥控制体系'
+    })
+  }
+
+  if (!hasStriker) {
+    vulnerabilities.push({
+      severity: 'high',
+      title: '缺少打击单元节点',
+      description: '网络中没有打击单元节点，无法执行火力打击任务'
+    })
+    suggestions.push({
+      priority: 'high',
+      title: '添加打击单元节点',
+      description: '建议添加2-4个打击单元节点以提供火力支援',
+      expected_effect: '形成完整的杀伤链'
+    })
+  }
+
+  // 计算连通性
+  let connectivity = 0
+  if (evalNodes.length > 1) {
+    connectivity = evalEdges.length / ((evalNodes.length * (evalNodes.length - 1)) / 2)
+  }
+
+  // 计算冗余度
+  const avgDegree = evalNodes.length > 0 ? (evalEdges.length * 2) / evalNodes.length : 0
+  const redundancy = Math.min(avgDegree / 4, 1)
+
+  // 计算覆盖度
+  const connectedNodes = new Set()
+  evalEdges.forEach(edge => {
+    connectedNodes.add(edge.source)
+    connectedNodes.add(edge.target)
+  })
+  const coverage = evalNodes.length > 0 ? connectedNodes.size / evalNodes.length : 0
+
+  // 计算综合得分
+  const overall_score = (
+    (hasSensor ? 20 : 0) +
+    (hasCommand ? 20 : 0) +
+    (hasStriker ? 20 : 0) +
+    connectivity * 15 +
+    redundancy * 15 +
+    coverage * 10
+  )
+
+  return {
+    overall_score,
+    metrics: {
+      connectivity,
+      redundancy,
+      coverage,
+      efficiency: (hasSensor && hasCommand && hasStriker) ? 0.8 : 0.4,
+      robustness: redundancy
+    },
+    vulnerabilities,
+    suggestions
+  }
+}
+
 const handleSaveProject = () => {
   const projectData = {
     name: currentProject.value.name,
     nodes: nodes.value,
     edges: edges.value,
     networkMode: networkMode.value,
+    viewTransform: viewTransform,
     timestamp: new Date().toISOString()
   }
 
-  // 保存到 localStorage
   localStorage.setItem('currentProject', JSON.stringify(projectData))
-  ElMessage.success('项目已保存到本地')
+  ElMessage.success('项目已保存到本地存储')
 }
 
-// 清空画布
 const handleClearCanvas = () => {
   ElMessageBox.confirm(
     '确定要清空画布吗？所有节点和连接都会被删除。',
@@ -833,24 +1675,25 @@ const handleClearCanvas = () => {
     selectedNode.value = null
     nodeCounter.value = 0
     edgeCounter.value = 0
+    connectingEdge.source = null
+    connectingEdge.preview = null
+    handleResetView()
     ElMessage.success('画布已清空')
   }).catch(() => {})
 }
 
-// 切换删除模式
 const toggleDeleteMode = () => {
   deleteMode.value = !deleteMode.value
   if (deleteMode.value) {
     ElMessage.info('已进入删除模式，点击节点或连接进行删除')
+    operationMode.value = 'add'
   }
 }
 
-// 更新节点标签
 const updateNodeLabel = () => {
   ElMessage.success('标签已更新')
 }
 
-// 辅助函数
 const getNodeById = (id) => {
   return nodes.value.find(node => node.id === id)
 }
@@ -871,17 +1714,15 @@ const getNodeIconText = (baseType) => {
 const getEdgeColor = (edge) => {
   const sourceNode = getNodeById(edge.source)
   const targetNode = getNodeById(edge.target)
-  
+
   if (!sourceNode || !targetNode) return '#95a5a6'
-  
-  // 如果是跨阵营连接，使用特殊颜色
+
   if (sourceNode.faction !== targetNode.faction) {
     if (edge.type === 'detection') return '#e67e22'
     if (edge.type === 'strike') return '#8e44ad'
     return '#95a5a6'
   }
-  
-  // 同阵营连接
+
   const colors = {
     detection: sourceNode.faction === 'blue' ? '#3498db' : '#c0392b',
     communication: sourceNode.faction === 'blue' ? '#2ecc71' : '#e67e22',
@@ -894,27 +1735,15 @@ const getEdgeColor = (edge) => {
 const getEdgeMarker = (edge) => {
   const sourceNode = getNodeById(edge.source)
   const faction = sourceNode?.faction === 'blue' ? 'blue' : 'red'
-  
+
   if (edge.type === 'manual') return 'url(#arrowhead-manual)'
   return `url(#arrowhead-${edge.type}-${faction})`
 }
 
-const getMetricName = (key) => {
-  const names = {
-    connectivity: '连通性',
-    coverage: '覆盖率',
-    redundancy: '冗余度',
-    robustness: '鲁棒性',
-    efficiency: '效率',
-    reliability: '可靠性'
-  }
-  return names[key] || key
-}
-
 const getScoreColor = (score) => {
-  if (score >= 80) return '#67c23a'
-  if (score >= 60) return '#e6a23c'
-  return '#f56c6c'
+  if (score >= 80) return '#67C23A'
+  if (score >= 60) return '#E6A23C'
+  return '#F56C6C'
 }
 
 const getScoreLevel = (score) => {
@@ -924,47 +1753,80 @@ const getScoreLevel = (score) => {
   return '较差'
 }
 
-// 组件挂载时加载项目
+const getMetricName = (key) => {
+  const names = {
+    connectivity: '连通性',
+    redundancy: '冗余度',
+    coverage: '覆盖度',
+    efficiency: '效率',
+    robustness: '鲁棒性'
+  }
+  return names[key] || key
+}
+
 onMounted(() => {
-  // 尝试从 localStorage 加载项目
-  const savedProject = localStorage.getItem('currentProject')
-  if (savedProject) {
+  loadEquipments()
+  const saved = localStorage.getItem('currentProject')
+  if (saved) {
     try {
-      const data = JSON.parse(savedProject)
+      const data = JSON.parse(saved)
       nodes.value = data.nodes || []
       edges.value = data.edges || []
       networkMode.value = data.networkMode || 'mixed'
       currentProject.value.name = data.name || '新建作战网络'
-      
-      // 更新计数器
-      nodeCounter.value = nodes.value.length
-      edgeCounter.value = edges.value.length
-      
-      ElMessage.success('已加载上次保存的项目')
+
+      if (data.viewTransform) {
+        Object.assign(viewTransform, data.viewTransform)
+      }
+
+      nodeCounter.value = Math.max(...nodes.value.map(n => {
+        const match = n.id.match(/\d+/)
+        return match ? parseInt(match[0]) : 0
+      }), 0) + 1
+
+      edgeCounter.value = Math.max(...edges.value.map(e => {
+        const match = e.id.match(/\d+/)
+        return match ? parseInt(match[0]) : 0
+      }), 0) + 1
     } catch (error) {
       console.error('加载项目失败:', error)
     }
   }
 })
+const loadEquipments = () => {
+  // 从localStorage加载
+  const savedEquipments = localStorage.getItem('equipments')
+  if (savedEquipments) {
+    try {
+      const data = JSON.parse(savedEquipments)
+      equipments.value = Array.isArray(data) ? data : []
+      console.log('已加载装备数据:', equipments.value.length, '个装备')
+    } catch (error) {
+      console.error('加载装备数据失败:', error)
+      equipments.value = []
+    }
+  } else {
+    equipments.value = []
+  }
+}
 </script>
 
-<style lang="scss" scoped>
+<style scoped lang="scss">
 .network-canvas-page {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #f5f7fa;
+  background: #f0f2f5;
 }
 
 .top-toolbar {
-  height: 60px;
-  background: #fff;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  z-index: 100;
+  padding: 15px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e4e7ed;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 
   .toolbar-left {
     display: flex;
@@ -1106,6 +1968,10 @@ onMounted(() => {
     height: 100%;
     cursor: crosshair;
 
+    &.show-grid {
+      background-color: #fafafa;
+    }
+
     .node {
       cursor: pointer;
       transition: all 0.2s;
@@ -1113,6 +1979,16 @@ onMounted(() => {
       &:hover .node-body {
         filter: brightness(1.1);
         transform: scale(1.1);
+      }
+
+      &.node-dragging {
+        cursor: move;
+        opacity: 0.8;
+      }
+
+      &.node-connecting .node-body {
+        stroke: #409EFF;
+        stroke-width: 4;
       }
 
       .node-body {
@@ -1127,7 +2003,7 @@ onMounted(() => {
       .node-radius {
         pointer-events: none;
       }
-      
+
       .faction-indicator {
         pointer-events: none;
       }
@@ -1150,6 +2026,12 @@ onMounted(() => {
             stroke-width: 6 !important;
           }
         }
+
+        &.edge-out-of-range {
+          stroke: #ff6b6b !important;
+          stroke-dasharray: 10,5 !important;
+          opacity: 0.5;
+        }
       }
 
       .edge-label {
@@ -1157,6 +2039,24 @@ onMounted(() => {
         pointer-events: none;
         user-select: none;
       }
+    }
+
+    .edge-preview {
+      pointer-events: none;
+    }
+  }
+
+  .view-controls {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    z-index: 10;
+
+    .el-button-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
     }
   }
 }
@@ -1182,18 +2082,18 @@ onMounted(() => {
       padding: 12px;
       border-radius: 6px;
       margin-bottom: 15px;
-      
+
       p {
         margin: 8px 0;
         font-size: 13px;
         line-height: 1.6;
-        
+
         strong {
           color: #409eff;
         }
       }
     }
-    
+
     .legend {
       margin-top: 20px;
 
