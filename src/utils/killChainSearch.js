@@ -1,356 +1,411 @@
-// 杀伤链搜索引擎
+// 杀伤链搜索算法（重构版 v2.0）
 // 位置: src/utils/killChainSearch.js
 
-export class KillChainSearchEngine {
-  constructor(nodes, edges) {
-    this.nodes = nodes
-    this.edges = edges
-    
-    // 构建邻接表（有向图）
-    this.adjacencyList = this.buildAdjacencyList()
-  }
+import { calculateKillChainEffectiveness, calculateCooperativeEffectiveness } from './effectiveness'
+
+/**
+ * 搜索所有可行的杀伤链
+ * @param {Array} nodes - 节点列表
+ * @param {Array} edges - 边列表
+ * @param {String} targetId - 目标节点ID
+ * @returns {Object} 搜索结果
+ */
+export function searchKillChains(nodes, edges, targetId) {
+  console.log('=== 开始杀伤链搜索 ===')
+  console.log('节点数:', nodes.length)
+  console.log('边数:', edges.length)
+  console.log('目标ID:', targetId)
   
-  // 构建邻接表
-  buildAdjacencyList() {
-    const adj = new Map()
-    
-    // 初始化所有节点
-    this.nodes.forEach(node => {
-      adj.set(node.id, [])
-    })
-    
-    // 添加边
-    this.edges.forEach(edge => {
-      if (adj.has(edge.source)) {
-        adj.get(edge.source).push({
-          target: edge.target,
-          type: edge.type,
-          edgeId: edge.id,
-          label: edge.label
-        })
-      }
-    })
-    
-    return adj
-  }
-  
-  /**
-   * 搜索所有可行的杀伤链
-   * @param {string} targetId - 敌方目标节点ID
-   * @returns {Object} 搜索结果
-   */
-  searchKillChains(targetId) {
-    const target = this.nodes.find(n => n.id === targetId)
-    
-    if (!target) {
-      return {
-        success: false,
-        killChains: [],
-        reason: '目标节点不存在',
-        analysis: null
-      }
-    }
-    
-    if (target.faction !== 'red') {
-      return {
-        success: false,
-        killChains: [],
-        reason: '选择的不是敌方目标',
-        analysis: null
-      }
-    }
-    
-    // 分析网络结构
-    const analysis = this.analyzeNetwork(targetId)
-    
-    // 搜索所有杀伤链
-    const killChains = []
-    const visited = new Set()
-    
-    // 从每个我方传感器开始搜索
-    const sensors = this.nodes.filter(n => 
-      n.faction === 'blue' && 
-      n.baseType === 'sensor' && 
-      n.hp > 0
-    )
-    
-    sensors.forEach(sensor => {
-      this.dfsSearch(
-        sensor.id,
-        targetId,
-        [sensor.id],
-        [],
-        visited,
-        killChains,
-        'sensor'
-      )
-    })
-    
-    // 计算每条杀伤链的效能
-    killChains.forEach(chain => {
-      chain.effectiveness = this.calculateEffectiveness(chain)
-    })
-    
-    // 按效能排序
-    killChains.sort((a, b) => b.effectiveness - a.effectiveness)
-    
-    // 如果没找到杀伤链，给出详细原因
-    if (killChains.length === 0) {
-      const detailedReason = this.analyzeFailureReason(targetId, analysis)
-      return {
-        success: false,
-        killChains: [],
-        reason: detailedReason.reason,
-        analysis: detailedReason.details
-      }
-    }
-    
+  // 1. 验证目标节点
+  const target = nodes.find(n => n.id === targetId)
+  if (!target) {
     return {
-      success: true,
-      killChains,
-      reason: null,
-      analysis
+      success: false,
+      error: '目标节点不存在',
+      killChains: [],
+      suggestions: ['请选择有效的目标节点']
     }
   }
   
-  /**
-   * 深度优先搜索杀伤链
-   * @param {string} currentId - 当前节点ID
-   * @param {string} targetId - 目标节点ID
-   * @param {Array} path - 当前路径（节点序列）
-   * @param {Array} edgePath - 当前路径（边序列）
-   * @param {Set} visited - 已访问节点
-   * @param {Array} killChains - 找到的杀伤链列表
-   * @param {string} lastNodeType - 上一个节点类型
-   */
-  dfsSearch(currentId, targetId, path, edgePath, visited, killChains, lastNodeType) {
-    // 获取当前节点
-    const currentNode = this.nodes.find(n => n.id === currentId)
-    if (!currentNode || currentNode.hp <= 0) return
-    
-    // 标准杀伤链路径：传感器 → 指挥中心 → 打击单元 → 目标
-    // 确定下一步应该访问的节点类型和边类型
-    let nextNodeType = null
-    let requiredEdgeType = null
-    
-    switch (lastNodeType) {
-      case 'sensor':
-        nextNodeType = 'command'  // 传感器 → 指挥中心
-        requiredEdgeType = 'detection'  // 应该用探测边（传感器发现敌人后上报）
-        break
-      case 'command':
-        nextNodeType = 'striker'  // 指挥中心 → 打击单元
-        requiredEdgeType = 'communication'  // 应该用通信边（下达作战命令）
-        break
-      case 'striker':
-        nextNodeType = 'target'   // 打击单元 → 目标
-        requiredEdgeType = 'strike'  // 应该用打击边（执行打击）
-        break
-      default:
-        return
-    }
-    
-    // 获取当前节点的所有邻接节点
-    const neighbors = this.adjacencyList.get(currentId) || []
-    
-    for (const neighbor of neighbors) {
-      const neighborNode = this.nodes.find(n => n.id === neighbor.target)
-      if (!neighborNode || neighborNode.hp <= 0) continue
-      
-      // 检查是否已访问（避免环路）
-      if (visited.has(neighbor.target)) continue
-      
-      // *** 新增：检查边类型是否符合要求 ***
-      if (neighbor.type !== requiredEdgeType) continue
-      
-      // 检查节点类型是否符合杀伤链要求
-      if (nextNodeType === 'target') {
-        // 最后一步：打击单元 → 目标
-        if (neighbor.target === targetId && neighbor.type === 'strike') {
-          // 找到完整杀伤链！
-          const completePath = [...path, neighbor.target]
-          const completeEdgePath = [...edgePath, {
-            id: neighbor.edgeId,
-            source: currentId,
-            target: neighbor.target,
-            type: neighbor.type,
-            label: neighbor.label
-          }]
-          
-          killChains.push({
-            id: `chain_${killChains.length + 1}`,
-            nodes: completePath,
-            edges: completeEdgePath,
-            nodeDetails: completePath.map(id => this.nodes.find(n => n.id === id)),
-            length: completePath.length,
-            type: 'standard' // 标准杀伤链
-          })
-        }
-      } else {
-        // 中间步骤：检查节点类型
-        const requiredType = nextNodeType === 'command' ? 'command' : 'striker'
-        
-        if (neighborNode.baseType === requiredType && neighborNode.faction === 'blue') {
-          // 继续搜索
-          visited.add(neighbor.target)
-          
-          this.dfsSearch(
-            neighbor.target,
-            targetId,
-            [...path, neighbor.target],
-            [...edgePath, {
-              id: neighbor.edgeId,
-              source: currentId,
-              target: neighbor.target,
-              type: neighbor.type,
-              label: neighbor.label
-            }],
-            visited,
-            killChains,
-            requiredType
-          )
-          
-          visited.delete(neighbor.target)
-        }
-      }
-    }
-  }
-  
-  /**
-   * 计算杀伤链效能
-   * @param {Object} chain - 杀伤链对象
-   * @returns {number} 效能值 (0-1)
-   */
-  calculateEffectiveness(chain) {
-    // 效能 = 探测概率 × 通信可靠性 × 指挥效率 × 打击概率
-    
-    let effectiveness = 1.0
-    
-    // 1. 探测概率（传感器）
-    const sensor = chain.nodeDetails[0]
-    const detectionProb = 0.85 // 简化：可以根据传感器性能计算
-    effectiveness *= detectionProb
-    
-    // 2. 通信可靠性（路径中的通信环节）
-    const commEdges = chain.edges.filter(e => e.type === 'communication')
-    const commReliability = Math.pow(0.95, commEdges.length) // 每个通信环节95%可靠性
-    effectiveness *= commReliability
-    
-    // 3. 指挥效率（指挥中心）
-    const commandNode = chain.nodeDetails.find(n => n.baseType === 'command')
-    const commandEfficiency = 0.9 // 简化：可以根据指挥中心性能计算
-    effectiveness *= commandEfficiency
-    
-    // 4. 打击概率（打击单元）
-    const striker = chain.nodeDetails[chain.nodeDetails.length - 2]
-    const strikeProb = 0.8 // 简化：可以根据距离、打击单元性能计算
-    effectiveness *= strikeProb
-    
-    // 5. 路径长度惩罚（路径越长，效能越低）
-    const lengthPenalty = 1.0 / (1 + (chain.length - 4) * 0.1)
-    effectiveness *= lengthPenalty
-    
-    return parseFloat(effectiveness.toFixed(4))
-  }
-  
-  /**
-   * 分析网络结构
-   * @param {string} targetId - 目标ID
-   * @returns {Object} 分析结果
-   */
-  analyzeNetwork(targetId) {
-    const sensors = this.nodes.filter(n => 
-      n.faction === 'blue' && n.baseType === 'sensor' && n.hp > 0
-    )
-    
-    const commands = this.nodes.filter(n => 
-      n.faction === 'blue' && n.baseType === 'command' && n.hp > 0
-    )
-    
-    const strikers = this.nodes.filter(n => 
-      n.faction === 'blue' && n.baseType === 'striker' && n.hp > 0
-    )
-    
-    // 检查能否打击目标的打击单元
-    const strikersCanHitTarget = strikers.filter(striker => {
-      const edges = this.adjacencyList.get(striker.id) || []
-      return edges.some(e => e.target === targetId && e.type === 'strike')
-    })
-    
+  if (target.faction !== 'red') {
     return {
-      sensorCount: sensors.length,
-      commandCount: commands.length,
-      strikerCount: strikers.length,
-      strikersCanHitTarget: strikersCanHitTarget.length,
-      hasBasicStructure: sensors.length > 0 && commands.length > 0 && strikers.length > 0
+      success: false,
+      error: '只能选择敌方目标',
+      killChains: [],
+      suggestions: ['请选择红方节点作为目标']
     }
   }
   
-  /**
-   * 分析失败原因
-   * @param {string} targetId - 目标ID
-   * @param {Object} analysis - 网络分析结果
-   * @returns {Object} 详细原因
-   */
-  analyzeFailureReason(targetId, analysis) {
-    const reasons = []
-    const suggestions = []
-    
-    // 检查基本结构
-    if (analysis.sensorCount === 0) {
-      reasons.push('缺少我方传感器节点')
-      suggestions.push('需要部署传感器以探测敌方目标')
-    }
-    
-    if (analysis.commandCount === 0) {
-      reasons.push('缺少我方指挥中心节点')
-      suggestions.push('需要部署指挥中心以协调作战')
-    }
-    
-    if (analysis.strikerCount === 0) {
-      reasons.push('缺少我方打击单元节点')
-      suggestions.push('需要部署打击单元以执行打击任务')
-    }
-    
-    // 检查能否打击目标
-    if (analysis.strikerCount > 0 && analysis.strikersCanHitTarget === 0) {
-      reasons.push('没有打击单元能够打击该目标')
-      suggestions.push('检查打击单元与目标之间是否有"打击"类型的连接')
-      suggestions.push('或者目标超出所有打击单元的射程')
-    }
-    
-    // 检查连接性
-    if (analysis.hasBasicStructure && reasons.length === 0) {
-      reasons.push('网络连接不完整，无法形成杀伤链')
-      suggestions.push('检查传感器→指挥中心、指挥中心→打击单元之间的连接')
-      suggestions.push('确保存在完整的探测→通信→指挥→通信→打击路径')
-    }
-    
+  // 2. 构建邻接表
+  const adjList = buildAdjacencyList(nodes, edges)
+  
+  // 3. 检查网络完整性
+  const integrityCheck = checkNetworkIntegrity(nodes, adjList)
+  if (!integrityCheck.valid) {
     return {
-      reason: reasons.join('；'),
-      details: {
-        reasons,
-        suggestions,
-        networkStatus: {
-          传感器: `${analysis.sensorCount}个`,
-          指挥中心: `${analysis.commandCount}个`,
-          打击单元: `${analysis.strikerCount}个`,
-          可打击目标的打击单元: `${analysis.strikersCanHitTarget}个`
-        }
-      }
+      success: false,
+      error: integrityCheck.error,
+      killChains: [],
+      suggestions: integrityCheck.suggestions
     }
   }
   
-  /**
-   * 获取杀伤链的可读描述
-   * @param {Object} chain - 杀伤链对象
-   * @returns {string} 描述文本
-   */
-  getChainDescription(chain) {
-    const nodeNames = chain.nodeDetails.map(n => n.name).join(' → ')
-    const effectiveness = (chain.effectiveness * 100).toFixed(1)
-    return `${nodeNames} (效能: ${effectiveness}%)`
+  // 4. DFS搜索所有路径
+  const allPaths = []
+  const sensors = nodes.filter(n => n.baseType === 'sensor' && n.faction === 'blue')
+  
+  sensors.forEach(sensor => {
+    const paths = dfsSearch(sensor.id, targetId, nodes, adjList, [])
+    allPaths.push(...paths)
+  })
+  
+  console.log('找到路径数:', allPaths.length)
+  
+  if (allPaths.length === 0) {
+    return {
+      success: false,
+      error: '未找到可行的杀伤链',
+      killChains: [],
+      suggestions: analyzeFailureReasons(nodes, edges, targetId)
+    }
+  }
+  
+  // 5. 计算每条杀伤链的效能
+  const killChains = allPaths.map((path, index) => {
+    const result = calculateKillChainEffectiveness(path, nodes)
+    return {
+      id: `chain_${index + 1}`,
+      path,
+      effectiveness: result.effectiveness,
+      score: result.score,
+      breakdown: result.breakdown,
+      details: result.details,
+      distances: result.distances,
+      totalDelay: result.totalDelay,
+      nodes: path.map(nodeId => {
+        const node = nodes.find(n => n.id === nodeId)
+        return {
+          id: nodeId,
+          name: node?.name || node?.label || nodeId,
+          type: node?.baseType
+        }
+      })
+    }
+  })
+  
+  // 6. 按效能排序
+  killChains.sort((a, b) => b.effectiveness - a.effectiveness)
+  
+  // 7. 计算协同效能
+  const cooperative = calculateCooperativeEffectiveness(killChains)
+  
+  console.log('=== 搜索完成 ===')
+  console.log('杀伤链数量:', killChains.length)
+  console.log('最高效能:', killChains[0]?.score || 0)
+  console.log('协同效能:', cooperative.score)
+  
+  return {
+    success: true,
+    killChains,
+    cooperative,
+    statistics: {
+      totalChains: killChains.length,
+      avgEffectiveness: killChains.reduce((sum, c) => sum + c.effectiveness, 0) / killChains.length,
+      maxEffectiveness: killChains[0]?.effectiveness || 0,
+      minEffectiveness: killChains[killChains.length - 1]?.effectiveness || 0
+    }
   }
 }
 
-export default KillChainSearchEngine
+/**
+ * 构建邻接表
+ */
+function buildAdjacencyList(nodes, edges) {
+  const adjList = {}
+  
+  // 初始化
+  nodes.forEach(node => {
+    adjList[node.id] = []
+  })
+  
+  // 添加边
+  edges.forEach(edge => {
+    if (adjList[edge.source]) {
+      adjList[edge.source].push({
+        target: edge.target,
+        type: edge.type,
+        edgeId: edge.id
+      })
+    }
+  })
+  
+  return adjList
+}
+
+/**
+ * 检查网络完整性
+ */
+function checkNetworkIntegrity(nodes, adjList) {
+  const blueNodes = nodes.filter(n => n.faction === 'blue')
+  const sensors = blueNodes.filter(n => n.baseType === 'sensor')
+  const commands = blueNodes.filter(n => n.baseType === 'command')
+  const strikers = blueNodes.filter(n => n.baseType === 'striker')
+  
+  if (sensors.length === 0) {
+    return {
+      valid: false,
+      error: '网络中没有传感器节点',
+      suggestions: ['请添加至少一个我方传感器节点']
+    }
+  }
+  
+  if (commands.length === 0) {
+    return {
+      valid: false,
+      error: '网络中没有指挥节点',
+      suggestions: ['请添加至少一个我方指挥节点']
+    }
+  }
+  
+  if (strikers.length === 0) {
+    return {
+      valid: false,
+      error: '网络中没有打击节点',
+      suggestions: ['请添加至少一个我方打击节点']
+    }
+  }
+  
+  return { valid: true }
+}
+
+/**
+ * DFS搜索（深度优先搜索）
+ * 路径格式: [sensor, command, striker, target]
+ */
+function dfsSearch(currentId, targetId, nodes, adjList, visited) {
+  const paths = []
+  const currentNode = nodes.find(n => n.id === currentId)
+  if (!currentNode) return paths
+  
+  // 初始化访问路径
+  if (visited.length === 0) {
+    visited = [currentId]
+  }
+  
+  // 确定当前应该搜索的边类型和下一个节点类型
+  let requiredEdgeType = null
+  let nextNodeType = null
+  const lastNodeType = currentNode.baseType
+  
+  switch (lastNodeType) {
+    case 'sensor':
+      nextNodeType = 'command'
+      requiredEdgeType = 'detection'
+      break
+    case 'command':
+      nextNodeType = 'striker'
+      requiredEdgeType = 'communication'
+      break
+    case 'striker':
+      nextNodeType = null  // 下一步直接到目标
+      requiredEdgeType = 'strike'
+      break
+  }
+  
+  // 遍历邻居节点
+  const neighbors = adjList[currentId] || []
+  
+  for (const neighbor of neighbors) {
+    // 验证边类型
+    if (neighbor.type !== requiredEdgeType) {
+      continue
+    }
+    
+    const neighborNode = nodes.find(n => n.id === neighbor.target)
+    if (!neighborNode) continue
+    
+    // 避免循环
+    if (visited.includes(neighbor.target)) {
+      continue
+    }
+    
+    // 检查是否到达目标
+    if (neighbor.target === targetId) {
+      // 验证路径长度（必须是4个节点）
+      if (visited.length === 3 && lastNodeType === 'striker') {
+        paths.push([...visited, targetId])
+      }
+      continue
+    }
+    
+    // 检查节点类型是否正确
+    if (nextNodeType && neighborNode.baseType === nextNodeType) {
+      // 继续搜索
+      const newVisited = [...visited, neighbor.target]
+      const subPaths = dfsSearch(neighbor.target, targetId, nodes, adjList, newVisited)
+      paths.push(...subPaths)
+    }
+  }
+  
+  return paths
+}
+
+/**
+ * 分析失败原因
+ */
+function analyzeFailureReasons(nodes, edges, targetId) {
+  const suggestions = []
+  
+  const blueNodes = nodes.filter(n => n.faction === 'blue')
+  const sensors = blueNodes.filter(n => n.baseType === 'sensor')
+  const commands = blueNodes.filter(n => n.baseType === 'command')
+  const strikers = blueNodes.filter(n => n.baseType === 'striker')
+  
+  // 检查节点数量
+  if (sensors.length === 0) {
+    suggestions.push('缺少传感器节点：请添加雷达、卫星或预警机')
+  }
+  if (commands.length === 0) {
+    suggestions.push('缺少指挥节点：请添加指挥中心或指挥所')
+  }
+  if (strikers.length === 0) {
+    suggestions.push('缺少打击节点：请添加导弹、战斗机或火炮')
+  }
+  
+  // 检查连接
+  const detectionEdges = edges.filter(e => e.type === 'detection')
+  const commEdges = edges.filter(e => e.type === 'communication')
+  const strikeEdges = edges.filter(e => e.type === 'strike')
+  
+  if (detectionEdges.length === 0) {
+    suggestions.push('缺少探测连接：请在传感器和指挥节点之间创建探测连接')
+  }
+  if (commEdges.length === 0) {
+    suggestions.push('缺少通信连接：请在指挥节点和打击节点之间创建通信连接')
+  }
+  if (strikeEdges.length === 0) {
+    suggestions.push('缺少打击连接：请在打击节点和目标之间创建打击连接')
+  }
+  
+  // 检查到目标的连接
+  const edgesToTarget = edges.filter(e => e.target === targetId)
+  if (edgesToTarget.length === 0) {
+    suggestions.push('没有到目标的连接：请创建从打击节点到目标的打击连接')
+  }
+  
+  if (suggestions.length === 0) {
+    suggestions.push('网络结构可能存在问题，请检查连接的完整性')
+  }
+  
+  return suggestions
+}
+
+/**
+ * 获取杀伤链描述
+ */
+export function getKillChainDescription(killChain, nodes) {
+  const nodeNames = killChain.path.map(nodeId => {
+    const node = nodes.find(n => n.id === nodeId)
+    return node?.name || node?.label || nodeId
+  })
+  
+  return `${nodeNames[0]} → ${nodeNames[1]} → ${nodeNames[2]} → ${nodeNames[3]}`
+}
+
+/**
+ * 导出杀伤链数据
+ */
+export function exportKillChainData(killChains, cooperative) {
+  return {
+    version: '2.0',
+    timestamp: new Date().toISOString(),
+    summary: {
+      totalChains: killChains.length,
+      avgEffectiveness: killChains.reduce((sum, c) => sum + c.effectiveness, 0) / killChains.length,
+      maxEffectiveness: killChains[0]?.effectiveness || 0,
+      cooperativeEffectiveness: cooperative.finalEffectiveness,
+      cooperativeScore: cooperative.score
+    },
+    chains: killChains.map(chain => ({
+      id: chain.id,
+      path: chain.path,
+      nodes: chain.nodes,
+      effectiveness: chain.effectiveness,
+      score: chain.score,
+      breakdown: chain.breakdown,
+      totalDelay: chain.totalDelay
+    })),
+    cooperative
+  }
+}
+
+/**
+ * 杀伤链搜索引擎类（面向对象包装器）
+ * 为兼容旧代码，提供类式API
+ */
+export class KillChainSearchEngine {
+  constructor(nodes, edges) {
+    this.nodes = nodes || []
+    this.edges = edges || []
+    this.lastSearchResult = null
+  }
+  
+  /**
+   * 搜索杀伤链
+   * @param {String} targetId - 目标节点ID
+   * @returns {Object} 搜索结果
+   */
+  searchKillChains(targetId) {
+    const result = searchKillChains(this.nodes, this.edges, targetId)
+    this.lastSearchResult = result
+    
+    // 转换格式以兼容旧版API
+    if (result.success) {
+      return {
+        success: true,
+        killChains: result.killChains,
+        cooperative: result.cooperative,
+        statistics: result.statistics
+      }
+    } else {
+      return {
+        success: false,
+        killChains: [],
+        reason: result.error,
+        suggestions: result.suggestions
+      }
+    }
+  }
+  
+  /**
+   * 获取杀伤链描述
+   * @param {Object} chain - 杀伤链对象
+   * @returns {String} 描述文本
+   */
+  getChainDescription(chain) {
+    return getKillChainDescription(chain, this.nodes)
+  }
+  
+  /**
+   * 导出数据
+   * @returns {Object} 导出数据
+   */
+  exportData() {
+    if (!this.lastSearchResult || !this.lastSearchResult.success) {
+      return null
+    }
+    
+    return exportKillChainData(
+      this.lastSearchResult.killChains,
+      this.lastSearchResult.cooperative
+    )
+  }
+  
+  /**
+   * 获取统计信息
+   * @returns {Object} 统计数据
+   */
+  getStatistics() {
+    return this.lastSearchResult?.statistics || null
+  }
+}

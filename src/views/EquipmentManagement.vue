@@ -1,13 +1,56 @@
 <template>
   <div class="equipment-management-page">
-    <!-- 顶部搜索和操作栏 -->
+    <!-- 顶部统计卡片 -->
+    <div class="stats-cards">
+      <el-card class="stat-card">
+        <div class="stat-content">
+          <div class="stat-icon sensor">📡</div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.sensor }}</div>
+            <div class="stat-label">传感器</div>
+          </div>
+        </div>
+      </el-card>
+      
+      <el-card class="stat-card">
+        <div class="stat-content">
+          <div class="stat-icon command">🎯</div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.command }}</div>
+            <div class="stat-label">决策类</div>
+          </div>
+        </div>
+      </el-card>
+      
+      <el-card class="stat-card">
+        <div class="stat-content">
+          <div class="stat-icon striker">🚀</div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.striker }}</div>
+            <div class="stat-label">影响器</div>
+          </div>
+        </div>
+      </el-card>
+      
+      <el-card class="stat-card">
+        <div class="stat-content">
+          <div class="stat-icon support">📶</div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.support }}</div>
+            <div class="stat-label">支援保障</div>
+          </div>
+        </div>
+      </el-card>
+    </div>
+
+    <!-- 搜索和操作栏 -->
     <div class="top-toolbar">
       <div class="search-section">
         <el-input
           v-model="searchForm.name"
-          placeholder="搜索装备名称"
+          placeholder="搜索装备名称或型号"
           clearable
-          style="width: 200px; margin-right: 10px;"
+          style="width: 220px; margin-right: 10px;"
           @clear="handleSearch"
           @keyup.enter="handleSearch"
         >
@@ -17,7 +60,7 @@
         </el-input>
 
         <el-select
-          v-model="searchForm.type"
+          v-model="searchForm.baseType"
           placeholder="装备类型"
           clearable
           style="width: 150px; margin-right: 10px;"
@@ -25,10 +68,9 @@
         >
           <el-option label="全部类型" value="" />
           <el-option label="传感器" value="sensor" />
-          <el-option label="指挥中心" value="command" />
-          <el-option label="打击单元" value="striker" />
-          <el-option label="通信节点" value="communication" />
-          <el-option label="平台载具" value="platform" />
+          <el-option label="决策类" value="command" />
+          <el-option label="影响器" value="striker" />
+          <el-option label="支援保障" value="support" />
         </el-select>
 
         <el-select
@@ -58,16 +100,10 @@
         <el-button
           type="danger"
           :icon="Delete"
-          :disabled="selectedIds.length === 0"
+          :disabled="selectedEquipment.length === 0"
           @click="handleBatchDelete"
         >
-          批量删除 ({{ selectedIds.length }})
-        </el-button>
-        <el-button :icon="Download" @click="handleExport">
-          导出数据
-        </el-button>
-        <el-button :icon="Upload" @click="handleImport">
-          导入数据
+          批量删除 ({{ selectedEquipment.length }})
         </el-button>
       </div>
     </div>
@@ -75,7 +111,7 @@
     <!-- 装备列表表格 -->
     <div class="table-container">
       <el-table
-        :data="tableData"
+        :data="filteredEquipment"
         v-loading="loading"
         stripe
         border
@@ -84,15 +120,25 @@
       >
         <el-table-column type="selection" width="55" align="center" />
         <el-table-column type="index" label="序号" width="70" align="center" />
-        <el-table-column prop="name" label="装备名称" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="code" label="装备编号" width="120" align="center" />
-        <el-table-column prop="type" label="装备类型" width="120" align="center">
+        
+        <el-table-column prop="icon" label="图标" width="80" align="center">
           <template #default="{ row }">
-            <el-tag :type="getTypeTagType(row.type)">
-              {{ getTypeName(row.type) }}
+            <span style="font-size: 24px;">{{ row.icon }}</span>
+          </template>
+        </el-table-column>
+        
+        <el-table-column prop="name" label="装备名称" min-width="150" show-overflow-tooltip />
+        
+        <el-table-column prop="model" label="装备型号" width="140" show-overflow-tooltip />
+        
+        <el-table-column prop="baseType" label="装备类型" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag :type="getTypeTagType(row.baseType)">
+              {{ getTypeName(row.baseType) }}
             </el-tag>
           </template>
         </el-table-column>
+        
         <el-table-column prop="faction" label="所属阵营" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="row.faction === 'blue' ? 'primary' : 'danger'">
@@ -100,66 +146,107 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="manufacturer" label="制造商" width="120" show-overflow-tooltip />
-        <el-table-column label="关键参数" width="200" align="center">
+        
+        <el-table-column label="关键性能参数" min-width="280" align="center">
           <template #default="{ row }">
             <div class="params-display">
-              <el-tag v-if="row.detection_range" size="small" type="info">
-                探测: {{ row.detection_range }}km
-              </el-tag>
-              <el-tag v-if="row.communication_range" size="small" type="success">
-                通信: {{ row.communication_range }}km
-              </el-tag>
-              <el-tag v-if="row.strike_range" size="small" type="warning">
-                打击: {{ row.strike_range }}km
-              </el-tag>
-              <el-tag v-if="row.attack_power" size="small" type="danger">
-                火力: {{ row.attack_power }}
-              </el-tag>
+              <!-- 传感器参数 -->
+              <template v-if="row.baseType === 'sensor' && row.performance">
+                <el-tag size="small" type="primary">
+                  探测: {{ row.performance.detectionRange }}km
+                </el-tag>
+                <el-tag size="small" type="success">
+                  概率: {{ (row.performance.detectionProbability * 100).toFixed(0) }}%
+                </el-tag>
+                <el-tag size="small" type="info">
+                  抗干扰: {{ (row.performance.antiJamming * 100).toFixed(0) }}%
+                </el-tag>
+              </template>
+              
+              <!-- 决策类参数 -->
+              <template v-if="row.baseType === 'command' && row.performance">
+                <el-tag size="small" type="success">
+                  范围: {{ row.performance.commandRange }}km
+                </el-tag>
+                <el-tag size="small" type="warning">
+                  处理: {{ row.performance.processingCapacity }}条/秒
+                </el-tag>
+                <el-tag size="small" type="info">
+                  时延: {{ row.performance.decisionDelay }}秒
+                </el-tag>
+              </template>
+              
+              <!-- 影响器参数 -->
+              <template v-if="row.baseType === 'striker' && row.performance">
+                <el-tag size="small" type="danger">
+                  打击: {{ row.performance.strikeRange }}km
+                </el-tag>
+                <el-tag size="small" type="warning">
+                  毁伤: {{ (row.performance.damageRate * 100).toFixed(0) }}%
+                </el-tag>
+                <el-tag size="small" type="info">
+                  弹药: {{ row.performance.ammunition }}
+                </el-tag>
+              </template>
+              
+              <!-- 支援保障参数 -->
+              <template v-if="row.baseType === 'support' && row.performance">
+                <el-tag size="small" type="success">
+                  通信: {{ row.performance.commDistance }}km
+                </el-tag>
+                <el-tag size="small" type="primary">
+                  带宽: {{ row.performance.bandwidth }}Mbps
+                </el-tag>
+                <el-tag size="small" type="info">
+                  可靠性: {{ (row.performance.reliability * 100).toFixed(0) }}%
+                </el-tag>
+              </template>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="100" align="center">
+        
+        <el-table-column label="来源" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'active' ? 'success' : 'info'">
-              {{ row.status === 'active' ? '启用' : '停用' }}
+            <el-tag :type="row.isCustom ? 'warning' : 'success'" size="small">
+              {{ row.isCustom ? '自定义' : '预置' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" align="center" fixed="right">
+        
+        <el-table-column label="操作" width="180" align="center" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link :icon="View" @click="handleView(row)">
               查看
             </el-button>
-            <el-button type="primary" link :icon="Edit" @click="handleEdit(row)">
+            <el-button 
+              v-if="row.isCustom"
+              type="primary" 
+              link 
+              :icon="Edit" 
+              @click="handleEdit(row)"
+            >
               编辑
             </el-button>
-            <el-button type="danger" link :icon="Delete" @click="handleDelete(row)">
+            <el-button 
+              v-if="row.isCustom"
+              type="danger" 
+              link 
+              :icon="Delete" 
+              @click="handleDelete(row)"
+            >
               删除
             </el-button>
+            <el-tag v-if="!row.isCustom" size="small" type="info">系统预置</el-tag>
           </template>
         </el-table-column>
       </el-table>
-    </div>
-
-    <!-- 分页 -->
-    <div class="pagination-container">
-      <el-pagination
-        v-model:current-page="pagination.page"
-        v-model:page-size="pagination.pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="pagination.total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @size-change="handleSizeChange"
-        @current-change="handlePageChange"
-      />
     </div>
 
     <!-- 新增/编辑对话框 -->
     <el-dialog
       v-model="dialogVisible"
       :title="dialogTitle"
-      width="700px"
+      width="800px"
       :close-on-click-modal="false"
       @close="handleDialogClose"
     >
@@ -169,6 +256,8 @@
         :rules="formRules"
         label-width="120px"
       >
+        <el-divider content-position="left">基础信息</el-divider>
+        
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="装备名称" prop="name">
@@ -176,21 +265,20 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="装备编号" prop="code">
-              <el-input v-model="formData.code" placeholder="请输入装备编号" />
+            <el-form-item label="装备型号" prop="model">
+              <el-input v-model="formData.model" placeholder="请输入装备型号" />
             </el-form-item>
           </el-col>
         </el-row>
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="装备类型" prop="type">
-              <el-select v-model="formData.type" placeholder="请选择装备类型" style="width: 100%;" @change="handleTypeChange">
+            <el-form-item label="装备类型" prop="baseType">
+              <el-select v-model="formData.baseType" placeholder="请选择装备类型" style="width: 100%;" @change="handleTypeChange">
                 <el-option label="传感器" value="sensor" />
-                <el-option label="指挥中心" value="command" />
-                <el-option label="打击单元" value="striker" />
-                <el-option label="通信节点" value="communication" />
-                <el-option label="平台载具" value="platform" />
+                <el-option label="决策类" value="command" />
+                <el-option label="影响器" value="striker" />
+                <el-option label="支援保障" value="support" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -199,6 +287,7 @@
               <el-select v-model="formData.faction" placeholder="请选择所属阵营" style="width: 100%;">
                 <el-option label="我方" value="blue" />
                 <el-option label="敌方" value="red" />
+                <el-option label="中立" value="neutral" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -206,93 +295,170 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="制造商" prop="manufacturer">
-              <el-input v-model="formData.manufacturer" placeholder="请输入制造商" />
+            <el-form-item label="图标" prop="icon">
+              <el-input v-model="formData.icon" placeholder="输入emoji图标" maxlength="2" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="状态" prop="status">
-              <el-radio-group v-model="formData.status">
-                <el-radio value="active">启用</el-radio>
-                <el-radio value="inactive">停用</el-radio>
-              </el-radio-group>
+            <el-form-item label="颜色" prop="color">
+              <el-color-picker v-model="formData.color" />
             </el-form-item>
           </el-col>
         </el-row>
+
+        <el-divider content-position="left">性能参数</el-divider>
 
         <!-- 传感器特有参数 -->
-        <template v-if="formData.type === 'sensor'">
+        <template v-if="formData.baseType === 'sensor'">
           <el-row :gutter="20">
             <el-col :span="12">
-              <el-form-item label="探测范围" prop="detection_range">
-                <el-input-number v-model="formData.detection_range" :min="0" :max="1000" style="width: 100%;" />
+              <el-form-item label="探测范围" prop="performance.detectionRange">
+                <el-input-number v-model="formData.performance.detectionRange" :min="0" :max="2000" style="width: 100%;" />
                 <span style="margin-left: 5px;">km</span>
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="探测精度" prop="detection_accuracy">
-                <el-input-number v-model="formData.detection_accuracy" :min="0" :max="100" style="width: 100%;" />
-                <span style="margin-left: 5px;">%</span>
+              <el-form-item label="探测精度" prop="performance.detectionAccuracy">
+                <el-input-number v-model="formData.performance.detectionAccuracy" :min="0" :max="1000" style="width: 100%;" />
+                <span style="margin-left: 5px;">m</span>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="探测概率" prop="performance.detectionProbability">
+                <el-slider v-model="formData.performance.detectionProbability" :min="0" :max="1" :step="0.01" :format-tooltip="val => (val * 100).toFixed(0) + '%'" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="抗干扰能力" prop="performance.antiJamming">
+                <el-slider v-model="formData.performance.antiJamming" :min="0" :max="1" :step="0.01" :format-tooltip="val => (val * 100).toFixed(0) + '%'" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="分辨率" prop="performance.resolution">
+                <el-input-number v-model="formData.performance.resolution" :min="0.1" :max="100" :step="0.1" style="width: 100%;" />
+                <span style="margin-left: 5px;">m</span>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="工作频段" prop="performance.frequency">
+                <el-select v-model="formData.performance.frequency" style="width: 100%;">
+                  <el-option label="L-band" value="L-band" />
+                  <el-option label="S-band" value="S-band" />
+                  <el-option label="C-band" value="C-band" />
+                  <el-option label="X-band" value="X-band" />
+                  <el-option label="Optical" value="optical" />
+                  <el-option label="Infrared" value="infrared" />
+                </el-select>
               </el-form-item>
             </el-col>
           </el-row>
         </template>
 
-        <!-- 指挥中心特有参数 -->
-        <template v-if="formData.type === 'command'">
+        <!-- 决策类特有参数 -->
+        <template v-if="formData.baseType === 'command'">
           <el-row :gutter="20">
             <el-col :span="12">
-              <el-form-item label="通信范围" prop="communication_range">
-                <el-input-number v-model="formData.communication_range" :min="0" :max="1000" style="width: 100%;" />
+              <el-form-item label="指挥范围" prop="performance.commandRange">
+                <el-input-number v-model="formData.performance.commandRange" :min="0" :max="2000" style="width: 100%;" />
                 <span style="margin-left: 5px;">km</span>
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="指挥容量" prop="command_capacity">
-                <el-input-number v-model="formData.command_capacity" :min="0" :max="100" style="width: 100%;" />
-                <span style="margin-left: 5px;">单位</span>
+              <el-form-item label="处理能力" prop="performance.processingCapacity">
+                <el-input-number v-model="formData.performance.processingCapacity" :min="0" :max="10000" style="width: 100%;" />
+                <span style="margin-left: 5px;">条/秒</span>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="决策时延" prop="performance.decisionDelay">
+                <el-input-number v-model="formData.performance.decisionDelay" :min="0" :max="60" style="width: 100%;" />
+                <span style="margin-left: 5px;">秒</span>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="可指挥节点" prop="performance.maxNodes">
+                <el-input-number v-model="formData.performance.maxNodes" :min="0" :max="200" style="width: 100%;" />
+                <span style="margin-left: 5px;">个</span>
               </el-form-item>
             </el-col>
           </el-row>
         </template>
 
-        <!-- 打击单元特有参数 -->
-        <template v-if="formData.type === 'striker'">
+        <!-- 影响器特有参数 -->
+        <template v-if="formData.baseType === 'striker'">
           <el-row :gutter="20">
             <el-col :span="12">
-              <el-form-item label="打击范围" prop="strike_range">
-                <el-input-number v-model="formData.strike_range" :min="0" :max="1000" style="width: 100%;" />
+              <el-form-item label="打击范围" prop="performance.strikeRange">
+                <el-input-number v-model="formData.performance.strikeRange" :min="0" :max="2000" style="width: 100%;" />
                 <span style="margin-left: 5px;">km</span>
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="攻击火力" prop="attack_power">
-                <el-input-number v-model="formData.attack_power" :min="0" :max="1000" style="width: 100%;" />
+              <el-form-item label="毁伤概率" prop="performance.damageRate">
+                <el-slider v-model="formData.performance.damageRate" :min="0" :max="1" :step="0.01" :format-tooltip="val => (val * 100).toFixed(0) + '%'" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="反应时间" prop="performance.responseTime">
+                <el-input-number v-model="formData.performance.responseTime" :min="0" :max="600" style="width: 100%;" />
+                <span style="margin-left: 5px;">秒</span>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="弹药量" prop="performance.ammunition">
+                <el-input-number v-model="formData.performance.ammunition" :min="0" :max="1000" style="width: 100%;" />
+                <span style="margin-left: 5px;">发</span>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="打击精度CEP" prop="performance.accuracy">
+                <el-input-number v-model="formData.performance.accuracy" :min="0" :max="500" style="width: 100%;" />
+                <span style="margin-left: 5px;">m</span>
               </el-form-item>
             </el-col>
           </el-row>
         </template>
 
-        <!-- 通用参数 -->
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="生产年份" prop="production_year">
-              <el-date-picker
-                v-model="formData.production_year"
-                type="year"
-                placeholder="选择年份"
-                style="width: 100%;"
-                value-format="YYYY"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="服役年限" prop="service_life">
-              <el-input-number v-model="formData.service_life" :min="0" :max="50" style="width: 100%;" />
-              <span style="margin-left: 5px;">年</span>
-            </el-form-item>
-          </el-col>
-        </el-row>
+        <!-- 支援保障特有参数 -->
+        <template v-if="formData.baseType === 'support'">
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="通信距离" prop="performance.commDistance">
+                <el-input-number v-model="formData.performance.commDistance" :min="0" :max="2000" style="width: 100%;" />
+                <span style="margin-left: 5px;">km</span>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="通信带宽" prop="performance.bandwidth">
+                <el-input-number v-model="formData.performance.bandwidth" :min="0" :max="1000" style="width: 100%;" />
+                <span style="margin-left: 5px;">Mbps</span>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="中继能力" prop="performance.relayCapacity">
+                <el-input-number v-model="formData.performance.relayCapacity" :min="0" :max="50" style="width: 100%;" />
+                <span style="margin-left: 5px;">链路</span>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="通信可靠性" prop="performance.reliability">
+                <el-slider v-model="formData.performance.reliability" :min="0" :max="1" :step="0.01" :format-tooltip="val => (val * 100).toFixed(0) + '%'" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </template>
 
         <el-form-item label="装备描述">
           <el-input
@@ -316,86 +482,164 @@
     <el-dialog
       v-model="detailVisible"
       title="装备详情"
-      width="600px"
+      width="700px"
     >
-      <el-descriptions :column="2" border v-if="currentRow">
-        <el-descriptions-item label="装备ID">{{ currentRow.id }}</el-descriptions-item>
-        <el-descriptions-item label="装备编号">{{ currentRow.code }}</el-descriptions-item>
-        <el-descriptions-item label="装备名称">{{ currentRow.name }}</el-descriptions-item>
+      <el-descriptions :column="2" border v-if="currentEquipment">
+        <el-descriptions-item label="装备名称" :span="2">
+          <span style="font-size: 18px; font-weight: bold;">{{ currentEquipment.name }}</span>
+        </el-descriptions-item>
+        
+        <el-descriptions-item label="装备型号">{{ currentEquipment.model }}</el-descriptions-item>
+        <el-descriptions-item label="装备ID">{{ currentEquipment.id }}</el-descriptions-item>
+        
         <el-descriptions-item label="装备类型">
-          <el-tag :type="getTypeTagType(currentRow.type)">
-            {{ getTypeName(currentRow.type) }}
+          <el-tag :type="getTypeTagType(currentEquipment.baseType)">
+            {{ getTypeName(currentEquipment.baseType) }}
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="所属阵营">
-          <el-tag :type="currentRow.faction === 'blue' ? 'primary' : 'danger'">
-            {{ currentRow.faction === 'blue' ? '我方' : '敌方' }}
+          <el-tag :type="currentEquipment.faction === 'blue' ? 'primary' : 'danger'">
+            {{ getFactionName(currentEquipment.faction) }}
           </el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="制造商">{{ currentRow.manufacturer }}</el-descriptions-item>
-        <el-descriptions-item label="状态">
-          <el-tag :type="currentRow.status === 'active' ? 'success' : 'info'">
-            {{ currentRow.status === 'active' ? '启用' : '停用' }}
+        
+        <el-descriptions-item label="图标">
+          <span style="font-size: 32px;">{{ currentEquipment.icon }}</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="颜色">
+          <el-color-picker v-model="currentEquipment.color" disabled />
+        </el-descriptions-item>
+        
+        <el-descriptions-item label="数据来源" :span="2">
+          <el-tag :type="currentEquipment.isCustom ? 'warning' : 'success'">
+            {{ currentEquipment.isCustom ? '自定义装备' : '系统预置装备' }}
           </el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="生产年份">{{ currentRow.production_year }}</el-descriptions-item>
 
-        <!-- 动态显示特定参数 -->
-        <el-descriptions-item label="探测范围" v-if="currentRow.detection_range">
-          {{ currentRow.detection_range }} km
-        </el-descriptions-item>
-        <el-descriptions-item label="探测精度" v-if="currentRow.detection_accuracy">
-          {{ currentRow.detection_accuracy }}%
-        </el-descriptions-item>
-        <el-descriptions-item label="通信范围" v-if="currentRow.communication_range">
-          {{ currentRow.communication_range }} km
-        </el-descriptions-item>
-        <el-descriptions-item label="指挥容量" v-if="currentRow.command_capacity">
-          {{ currentRow.command_capacity }} 单位
-        </el-descriptions-item>
-        <el-descriptions-item label="打击范围" v-if="currentRow.strike_range">
-          {{ currentRow.strike_range }} km
-        </el-descriptions-item>
-        <el-descriptions-item label="攻击火力" v-if="currentRow.attack_power">
-          {{ currentRow.attack_power }}
-        </el-descriptions-item>
-        <el-descriptions-item label="服役年限" v-if="currentRow.service_life">
-          {{ currentRow.service_life }} 年
+        <!-- 性能参数 -->
+        <el-descriptions-item label="性能参数" :span="2">
+          <div class="performance-detail">
+            <!-- 传感器参数 -->
+            <template v-if="currentEquipment.baseType === 'sensor' && currentEquipment.performance">
+              <div class="param-item">
+                <span class="param-label">探测范围:</span>
+                <span class="param-value">{{ currentEquipment.performance.detectionRange }} km</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">探测精度:</span>
+                <span class="param-value">{{ currentEquipment.performance.detectionAccuracy }} m</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">探测概率:</span>
+                <span class="param-value">{{ (currentEquipment.performance.detectionProbability * 100).toFixed(0) }}%</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">分辨率:</span>
+                <span class="param-value">{{ currentEquipment.performance.resolution }} m</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">工作频段:</span>
+                <span class="param-value">{{ currentEquipment.performance.frequency }}</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">抗干扰能力:</span>
+                <span class="param-value">{{ (currentEquipment.performance.antiJamming * 100).toFixed(0) }}%</span>
+              </div>
+            </template>
+            
+            <!-- 决策类参数 -->
+            <template v-if="currentEquipment.baseType === 'command' && currentEquipment.performance">
+              <div class="param-item">
+                <span class="param-label">指挥范围:</span>
+                <span class="param-value">{{ currentEquipment.performance.commandRange }} km</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">信息处理能力:</span>
+                <span class="param-value">{{ currentEquipment.performance.processingCapacity }} 条/秒</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">决策时延:</span>
+                <span class="param-value">{{ currentEquipment.performance.decisionDelay }} 秒</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">可指挥节点数:</span>
+                <span class="param-value">{{ currentEquipment.performance.maxNodes }} 个</span>
+              </div>
+            </template>
+            
+            <!-- 影响器参数 -->
+            <template v-if="currentEquipment.baseType === 'striker' && currentEquipment.performance">
+              <div class="param-item">
+                <span class="param-label">打击范围:</span>
+                <span class="param-value">{{ currentEquipment.performance.strikeRange }} km</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">毁伤概率:</span>
+                <span class="param-value">{{ (currentEquipment.performance.damageRate * 100).toFixed(0) }}%</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">反应时间:</span>
+                <span class="param-value">{{ currentEquipment.performance.responseTime }} 秒</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">弹药量:</span>
+                <span class="param-value">{{ currentEquipment.performance.ammunition }} 发</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">打击精度 CEP:</span>
+                <span class="param-value">{{ currentEquipment.performance.accuracy }} m</span>
+              </div>
+            </template>
+            
+            <!-- 支援保障参数 -->
+            <template v-if="currentEquipment.baseType === 'support' && currentEquipment.performance">
+              <div class="param-item">
+                <span class="param-label">通信距离:</span>
+                <span class="param-value">{{ currentEquipment.performance.commDistance }} km</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">通信带宽:</span>
+                <span class="param-value">{{ currentEquipment.performance.bandwidth }} Mbps</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">中继能力:</span>
+                <span class="param-value">{{ currentEquipment.performance.relayCapacity }} 条链路</span>
+              </div>
+              <div class="param-item">
+                <span class="param-label">通信可靠性:</span>
+                <span class="param-value">{{ (currentEquipment.performance.reliability * 100).toFixed(0) }}%</span>
+              </div>
+            </template>
+          </div>
         </el-descriptions-item>
 
         <el-descriptions-item label="装备描述" :span="2">
-          {{ currentRow.description || '暂无描述' }}
+          {{ currentEquipment.description || '暂无描述' }}
         </el-descriptions-item>
-        <el-descriptions-item label="创建时间" :span="2">
-          {{ currentRow.created_at }}
-        </el-descriptions-item>
-        <el-descriptions-item label="更新时间" :span="2">
-          {{ currentRow.updated_at }}
+        
+        <el-descriptions-item label="创建时间" :span="2" v-if="currentEquipment.createdAt">
+          {{ currentEquipment.createdAt }}
         </el-descriptions-item>
       </el-descriptions>
     </el-dialog>
-
-    <!-- 隐藏的文件输入 -->
-    <input ref="importFileInput" type="file" accept=".json" style="display: none;" @change="handleImportFile" />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useEquipmentStore } from '@/store/modules/equipment'
 import {
   Search,
   Refresh,
   Plus,
   Delete,
-  Download,
-  Upload,
   Edit,
   View
 } from '@element-plus/icons-vue'
 
-// ==================== 常量 ====================
-const STORAGE_KEY = 'equipments'
+// ==================== Store ====================
+const equipmentStore = useEquipmentStore()
 
 // ==================== 状态定义 ====================
 const loading = ref(false)
@@ -403,44 +647,28 @@ const submitting = ref(false)
 const dialogVisible = ref(false)
 const detailVisible = ref(false)
 const formRef = ref(null)
-const importFileInput = ref(null)
 
 // 搜索表单
 const searchForm = reactive({
   name: '',
-  type: '',
+  baseType: '',
   faction: ''
 })
 
-// 分页
-const pagination = reactive({
-  page: 1,
-  pageSize: 20,
-  total: 0
-})
-
-// 表格数据
-const tableData = ref([])
-const selectedIds = ref([])
-const currentRow = ref(null)
+// 选中的装备
+const selectedEquipment = ref([])
+const currentEquipment = ref(null)
 
 // 表单数据
 const formData = reactive({
   id: null,
   name: '',
-  code: '',
-  type: 'sensor',
+  model: '',
+  baseType: 'sensor',
   faction: 'blue',
-  manufacturer: '',
-  status: 'active',
-  detection_range: 0,
-  detection_accuracy: 0,
-  communication_range: 0,
-  command_capacity: 0,
-  strike_range: 0,
-  attack_power: 0,
-  production_year: '',
-  service_life: 0,
+  icon: '📍',
+  color: '#409EFF',
+  performance: {},
   description: ''
 })
 
@@ -450,10 +678,10 @@ const formRules = {
     { required: true, message: '请输入装备名称', trigger: 'blur' },
     { min: 2, max: 50, message: '长度在 2 到 50 个字符', trigger: 'blur' }
   ],
-  code: [
-    { required: true, message: '请输入装备编号', trigger: 'blur' }
+  model: [
+    { required: true, message: '请输入装备型号', trigger: 'blur' }
   ],
-  type: [
+  baseType: [
     { required: true, message: '请选择装备类型', trigger: 'change' }
   ],
   faction: [
@@ -461,180 +689,98 @@ const formRules = {
   ]
 }
 
-// 对话框标题
+// ==================== 计算属性 ====================
 const dialogTitle = computed(() => {
   return formData.id ? '编辑装备' : '新增装备'
 })
 
-// ==================== 模拟数据生成 ====================
-const generateMockData = () => {
-  const types = ['sensor', 'command', 'striker', 'communication', 'platform']
-  const factions = ['blue', 'red']
-  const manufacturers = ['洛克希德·马丁', '波音公司', '诺斯罗普·格鲁曼', '雷神公司', '通用动力']
-  const mockData = []
+// 统计信息
+const stats = computed(() => {
+  const all = equipmentStore.allEquipment
+  return {
+    sensor: all.filter(e => e.baseType === 'sensor').length,
+    command: all.filter(e => e.baseType === 'command').length,
+    striker: all.filter(e => e.baseType === 'striker').length,
+    support: all.filter(e => e.baseType === 'support').length
+  }
+})
 
-  for (let i = 1; i <= 50; i++) {
-    const type = types[Math.floor(Math.random() * types.length)]
-    const faction = factions[Math.floor(Math.random() * factions.length)]
+// 过滤后的装备列表
+const filteredEquipment = computed(() => {
+  let result = equipmentStore.allEquipment
 
-    const item = {
-      id: i,
-      name: `${faction === 'blue' ? '我方' : '敌方'}${getTypeName(type)}${i}`,
-      code: `EQ${String(i).padStart(4, '0')}`,
-      type: type,
-      faction: faction,
-      manufacturer: manufacturers[Math.floor(Math.random() * manufacturers.length)],
-      status: Math.random() > 0.2 ? 'active' : 'inactive',
-      production_year: String(2010 + Math.floor(Math.random() * 14)),
-      service_life: 10 + Math.floor(Math.random() * 20),
-      description: `这是一台${getTypeName(type)}装备，具有优秀的性能指标。`,
-      created_at: new Date(Date.now() - Math.random() * 365 * 24 * 60 * 60 * 1000).toLocaleString(),
-      updated_at: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toLocaleString()
-    }
-
-    // 根据类型添加特定参数
-    if (type === 'sensor') {
-      item.detection_range = 50 + Math.floor(Math.random() * 200)
-      item.detection_accuracy = 70 + Math.floor(Math.random() * 30)
-    } else if (type === 'command') {
-      item.communication_range = 100 + Math.floor(Math.random() * 300)
-      item.command_capacity = 10 + Math.floor(Math.random() * 40)
-    } else if (type === 'striker') {
-      item.strike_range = 50 + Math.floor(Math.random() * 200)
-      item.attack_power = 100 + Math.floor(Math.random() * 400)
-    } else if (type === 'communication') {
-      item.communication_range = 100 + Math.floor(Math.random() * 400)
-    }
-
-    mockData.push(item)
+  if (searchForm.name) {
+    result = result.filter(e => 
+      e.name.toLowerCase().includes(searchForm.name.toLowerCase()) ||
+      e.model?.toLowerCase().includes(searchForm.name.toLowerCase())
+    )
   }
 
-  return mockData
-}
-
-// 存储所有数据
-let allData = []
-
-// ==================== localStorage 操作 ====================
-// 保存到 localStorage
-const saveToLocalStorage = () => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(allData))
-    console.log('✅ 装备数据已保存到本地，共', allData.length, '条')
-  } catch (error) {
-    console.error('❌ 保存装备数据失败:', error)
-    ElMessage.error('保存装备数据失败')
+  if (searchForm.baseType) {
+    result = result.filter(e => e.baseType === searchForm.baseType)
   }
-}
 
-// 从 localStorage 加载
-const loadFromLocalStorage = () => {
-  try {
-    const savedData = localStorage.getItem(STORAGE_KEY)
-    if (savedData) {
-      allData = JSON.parse(savedData)
-      console.log('✅ 从本地加载装备数据:', allData.length, '条')
-      return true
-    }
-    return false
-  } catch (error) {
-    console.error('❌ 加载装备数据失败:', error)
-    return false
+  if (searchForm.faction) {
+    result = result.filter(e => e.faction === searchForm.faction)
   }
-}
+
+  return result
+})
 
 // ==================== 生命周期 ====================
 onMounted(() => {
-  // 先尝试从 localStorage 加载
-  const loaded = loadFromLocalStorage()
-
-  if (!loaded || allData.length === 0) {
-    // 如果没有保存的数据或数据为空，生成模拟数据
-    allData = generateMockData()
-    saveToLocalStorage()
-    console.log('✅ 生成模拟装备数据:', allData.length, '条')
-  }
-
-  loadData()
+  // 从localStorage恢复自定义装备
+  equipmentStore.restoreFromStorage()
+  console.log('✅ 装备管理页面已加载，装备总数:', equipmentStore.allEquipment.length)
 })
-
-// ==================== 数据加载 ====================
-const loadData = () => {
-  loading.value = true
-
-  setTimeout(() => {
-    // 过滤数据
-    let filteredData = [...allData]
-
-    if (searchForm.name) {
-      filteredData = filteredData.filter(item =>
-        item.name.toLowerCase().includes(searchForm.name.toLowerCase())
-      )
-    }
-
-    if (searchForm.type) {
-      filteredData = filteredData.filter(item => item.type === searchForm.type)
-    }
-
-    if (searchForm.faction) {
-      filteredData = filteredData.filter(item => item.faction === searchForm.faction)
-    }
-
-    // 分页
-    pagination.total = filteredData.length
-    const start = (pagination.page - 1) * pagination.pageSize
-    const end = start + pagination.pageSize
-    tableData.value = filteredData.slice(start, end)
-
-    loading.value = false
-  }, 300)
-}
 
 // ==================== 搜索和重置 ====================
 const handleSearch = () => {
-  pagination.page = 1
-  loadData()
+  // 计算属性会自动更新
 }
 
 const handleReset = () => {
   searchForm.name = ''
-  searchForm.type = ''
+  searchForm.baseType = ''
   searchForm.faction = ''
-  pagination.page = 1
-  loadData()
-}
-
-// ==================== 分页 ====================
-const handleSizeChange = () => {
-  loadData()
-}
-
-const handlePageChange = () => {
-  loadData()
 }
 
 // ==================== 表格操作 ====================
 const handleSelectionChange = (selection) => {
-  selectedIds.value = selection.map(item => item.id)
+  selectedEquipment.value = selection
 }
 
 // ==================== CRUD 操作 ====================
 const handleAdd = () => {
   resetForm()
+  initPerformance('sensor')
   dialogVisible.value = true
 }
 
 const handleEdit = (row) => {
-  Object.assign(formData, row)
+  if (!row.isCustom) {
+    ElMessage.warning('系统预置装备不可编辑')
+    return
+  }
+  
+  Object.assign(formData, {
+    ...row,
+    performance: { ...row.performance }
+  })
   dialogVisible.value = true
 }
 
 const handleView = (row) => {
-  currentRow.value = row
+  currentEquipment.value = row
   detailVisible.value = true
 }
 
 const handleDelete = (row) => {
+  if (!row.isCustom) {
+    ElMessage.warning('系统预置装备不可删除')
+    return
+  }
+
   ElMessageBox.confirm(
     `确定要删除装备 "${row.name}" 吗？`,
     '删除确认',
@@ -644,22 +790,20 @@ const handleDelete = (row) => {
       type: 'warning'
     }
   ).then(() => {
-    const index = allData.findIndex(item => item.id === row.id)
-    if (index > -1) {
-      allData.splice(index, 1)
-
-      // 保存到 localStorage
-      saveToLocalStorage()
-
-      loadData()
-      ElMessage.success('删除成功')
-    }
+    equipmentStore.deleteCustomEquipment(row.id)
   }).catch(() => {})
 }
 
 const handleBatchDelete = () => {
+  const customEquipment = selectedEquipment.value.filter(e => e.isCustom)
+  
+  if (customEquipment.length === 0) {
+    ElMessage.warning('只能删除自定义装备')
+    return
+  }
+
   ElMessageBox.confirm(
-    `确定要删除选中的 ${selectedIds.value.length} 条记录吗？`,
+    `确定要删除选中的 ${customEquipment.length} 个自定义装备吗？`,
     '批量删除确认',
     {
       confirmButtonText: '确定',
@@ -667,14 +811,10 @@ const handleBatchDelete = () => {
       type: 'warning'
     }
   ).then(() => {
-    allData = allData.filter(item => !selectedIds.value.includes(item.id))
-    selectedIds.value = []
-
-    // 保存到 localStorage
-    saveToLocalStorage()
-
-    loadData()
-    ElMessage.success('批量删除成功')
+    customEquipment.forEach(equipment => {
+      equipmentStore.deleteCustomEquipment(equipment.id)
+    })
+    selectedEquipment.value = []
   }).catch(() => {})
 }
 
@@ -684,36 +824,44 @@ const handleSubmit = async () => {
 
   submitting.value = true
 
+  // 验证性能参数
+  const validation = equipmentStore.validatePerformance(formData.baseType, formData.performance)
+  if (!validation.valid) {
+    ElMessage.warning(`缺少必填性能参数: ${validation.missing.join(', ')}`)
+    submitting.value = false
+    return
+  }
+
   setTimeout(() => {
     if (formData.id) {
       // 编辑
-      const index = allData.findIndex(item => item.id === formData.id)
-      if (index > -1) {
-        allData[index] = {
-          ...formData,
-          updated_at: new Date().toLocaleString()
-        }
-      }
-      ElMessage.success('编辑成功')
+      equipmentStore.updateCustomEquipment(formData.id, {
+        name: formData.name,
+        model: formData.model,
+        baseType: formData.baseType,
+        faction: formData.faction,
+        icon: formData.icon,
+        color: formData.color,
+        performance: formData.performance,
+        description: formData.description
+      })
     } else {
       // 新增
-      const newItem = {
-        ...formData,
-        id: allData.length > 0 ? Math.max(...allData.map(item => item.id)) + 1 : 1,
-        created_at: new Date().toLocaleString(),
-        updated_at: new Date().toLocaleString()
-      }
-      allData.unshift(newItem)
-      ElMessage.success('新增成功')
+      equipmentStore.addCustomEquipment({
+        name: formData.name,
+        model: formData.model,
+        baseType: formData.baseType,
+        faction: formData.faction,
+        icon: formData.icon,
+        color: formData.color,
+        performance: formData.performance,
+        description: formData.description
+      })
     }
-
-    // 保存到 localStorage
-    saveToLocalStorage()
 
     dialogVisible.value = false
     submitting.value = false
-    loadData()
-  }, 500)
+  }, 300)
 }
 
 const handleDialogClose = () => {
@@ -724,114 +872,74 @@ const handleDialogClose = () => {
 const resetForm = () => {
   formData.id = null
   formData.name = ''
-  formData.code = ''
-  formData.type = 'sensor'
+  formData.model = ''
+  formData.baseType = 'sensor'
   formData.faction = 'blue'
-  formData.manufacturer = ''
-  formData.status = 'active'
-  formData.detection_range = 0
-  formData.detection_accuracy = 0
-  formData.communication_range = 0
-  formData.command_capacity = 0
-  formData.strike_range = 0
-  formData.attack_power = 0
-  formData.production_year = ''
-  formData.service_life = 0
+  formData.icon = '📍'
+  formData.color = '#409EFF'
+  formData.performance = {}
   formData.description = ''
 }
 
-const handleTypeChange = () => {
-  // 类型改变时清空特定参数
-  formData.detection_range = 0
-  formData.detection_accuracy = 0
-  formData.communication_range = 0
-  formData.command_capacity = 0
-  formData.strike_range = 0
-  formData.attack_power = 0
+const handleTypeChange = (type) => {
+  initPerformance(type)
 }
 
-// ==================== 导入导出 ====================
-const handleExport = () => {
-  const exportData = tableData.value.map(item => {
-    const { created_at, updated_at, ...rest } = item
-    return rest
-  })
-
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-    type: 'application/json'
-  })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `equipment_export_${Date.now()}.json`
-  a.click()
-  URL.revokeObjectURL(url)
-
-  ElMessage.success({
-    message: `已导出 ${exportData.length} 条记录`,
-    duration: 3000
-  })
-}
-
-const handleImport = () => {
-  importFileInput.value.click()
-}
-
-const handleImportFile = (event) => {
-  const file = event.target.files[0]
-  if (!file) return
-
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    try {
-      const data = JSON.parse(e.target.result)
-
-      if (!Array.isArray(data)) {
-        throw new Error('数据格式错误')
+const initPerformance = (type) => {
+  switch(type) {
+    case 'sensor':
+      formData.performance = {
+        detectionRange: 200,
+        detectionAccuracy: 10,
+        detectionProbability: 0.8,
+        resolution: 1.0,
+        frequency: 'X-band',
+        antiJamming: 0.7
       }
-
-      ElMessageBox.confirm(
-        `确定要导入 ${data.length} 条记录吗？`,
-        '导入确认',
-        {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-      ).then(() => {
-        // 处理导入数据
-        const importedData = data.map((item, index) => ({
-          ...item,
-          id: allData.length + index + 1,
-          created_at: new Date().toLocaleString(),
-          updated_at: new Date().toLocaleString()
-        }))
-
-        allData = [...allData, ...importedData]
-
-        // 保存到 localStorage
-        saveToLocalStorage()
-
-        loadData()
-        ElMessage.success(`成功导入 ${data.length} 条记录`)
-      }).catch(() => {})
-    } catch (error) {
-      ElMessage.error('导入失败：' + error.message)
-    }
+      formData.icon = '📡'
+      formData.color = '#409EFF'
+      break
+    case 'command':
+      formData.performance = {
+        commandRange: 300,
+        processingCapacity: 500,
+        decisionDelay: 3,
+        maxNodes: 30
+      }
+      formData.icon = '🎯'
+      formData.color = '#67C23A'
+      break
+    case 'striker':
+      formData.performance = {
+        strikeRange: 150,
+        damageRate: 0.75,
+        responseTime: 10,
+        ammunition: 10,
+        accuracy: 15
+      }
+      formData.icon = '🚀'
+      formData.color = '#F56C6C'
+      break
+    case 'support':
+      formData.performance = {
+        commDistance: 250,
+        bandwidth: 80,
+        relayCapacity: 8,
+        reliability: 0.9
+      }
+      formData.icon = '📶'
+      formData.color = '#E6A23C'
+      break
   }
-
-  reader.readAsText(file)
-  event.target.value = ''
 }
 
 // ==================== 辅助函数 ====================
 const getTypeName = (type) => {
   const typeMap = {
     sensor: '传感器',
-    command: '指挥中心',
-    striker: '打击单元',
-    communication: '通信节点',
-    platform: '平台载具'
+    command: '决策类',
+    striker: '影响器',
+    support: '支援保障'
   }
   return typeMap[type] || type
 }
@@ -841,10 +949,18 @@ const getTypeTagType = (type) => {
     sensor: 'primary',
     command: 'success',
     striker: 'danger',
-    communication: 'warning',
-    platform: 'info'
+    support: 'warning'
   }
   return tagMap[type] || ''
+}
+
+const getFactionName = (faction) => {
+  const factionMap = {
+    blue: '我方',
+    red: '敌方',
+    neutral: '中立'
+  }
+  return factionMap[faction] || faction
 }
 </script>
 
@@ -855,6 +971,60 @@ const getTypeTagType = (type) => {
   flex-direction: column;
   padding: 20px;
   background: #f0f2f5;
+}
+
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+
+  .stat-card {
+    cursor: pointer;
+    transition: all 0.3s;
+
+    &:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .stat-content {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+
+      .stat-icon {
+        font-size: 48px;
+        width: 70px;
+        height: 70px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+
+        &.sensor { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        &.command { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        &.striker { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+        &.support { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+      }
+
+      .stat-info {
+        flex: 1;
+
+        .stat-value {
+          font-size: 32px;
+          font-weight: bold;
+          color: #303133;
+        }
+
+        .stat-label {
+          font-size: 14px;
+          color: #909399;
+          margin-top: 5px;
+        }
+      }
+    }
+  }
 }
 
 .top-toolbar {
@@ -894,13 +1064,30 @@ const getTypeTagType = (type) => {
   }
 }
 
-.pagination-container {
-  display: flex;
-  justify-content: flex-end;
-  padding: 20px;
-  background: #fff;
+.performance-detail {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 10px;
+  background: #f5f7fa;
   border-radius: 4px;
-  margin-top: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+
+  .param-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #fff;
+    border-radius: 4px;
+
+    .param-label {
+      color: #606266;
+      font-weight: 500;
+    }
+
+    .param-value {
+      color: #303133;
+      font-weight: bold;
+    }
+  }
 }
 </style>

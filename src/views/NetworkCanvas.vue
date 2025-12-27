@@ -346,28 +346,69 @@
                 @click.stop="handleNodeClick(node)"
                 @contextmenu.prevent="handleNodeRightClick(node, $event)"
               >
-                <!-- 节点半径圈 -->
-                <circle
-                  v-if="node.baseType === 'sensor'"
-                  :r="getNodeTypeConfig(node.type).detection_radius"
-                  :fill="getNodeTypeConfig(node.type).color"
-                  opacity="0.1"
-                  class="node-radius"
-                />
-                <circle
-                  v-if="node.baseType === 'command'"
-                  :r="getNodeTypeConfig(node.type).communication_radius"
-                  :fill="getNodeTypeConfig(node.type).color"
-                  opacity="0.1"
-                  class="node-radius"
-                />
-                <circle
-                  v-if="node.baseType === 'striker'"
-                  :r="getNodeTypeConfig(node.type).strike_radius"
-                  :fill="getNodeTypeConfig(node.type).color"
-                  opacity="0.1"
-                  class="node-radius"
-                />
+ <!-- 节点范围圈 - 基于实际性能参数 -->
+        <g v-if="showRanges && node.performance" class="node-ranges">
+          <!-- 探测范围（传感器） -->
+          <circle
+            v-if="node.baseType === 'sensor' && node.performance.detectionRange"
+            :cx="node.x"
+            :cy="node.y"
+            :r="node.performance.detectionRange / 2"
+            fill="none"
+            stroke="#4CAF50"
+            stroke-width="1.5"
+            stroke-dasharray="5,5"
+            opacity="0.4"
+          >
+            <title>探测范围: {{ node.performance.detectionRange }}km</title>
+          </circle>
+          
+          <!-- 指挥范围（指挥节点） -->
+          <circle
+            v-if="node.baseType === 'command' && node.performance.commandRange"
+            :cx="node.x"
+            :cy="node.y"
+            :r="node.performance.commandRange / 2"
+            fill="none"
+            stroke="#2196F3"
+            stroke-width="1.5"
+            stroke-dasharray="5,5"
+            opacity="0.4"
+          >
+            <title>指挥范围: {{ node.performance.commandRange }}km</title>
+          </circle>
+          
+          <!-- 打击范围（打击节点） -->
+          <circle
+            v-if="node.baseType === 'striker' && node.performance.strikeRange"
+            :cx="node.x"
+            :cy="node.y"
+            :r="node.performance.strikeRange / 2"
+            fill="none"
+            stroke="#F44336"
+            stroke-width="1.5"
+            stroke-dasharray="5,5"
+            opacity="0.4"
+          >
+            <title>打击范围: {{ node.performance.strikeRange }}km</title>
+          </circle>
+          
+          <!-- 通信范围（支援节点） -->
+          <circle
+            v-if="node.baseType === 'support' && node.performance.commDistance"
+            :cx="node.x"
+            :cy="node.y"
+            :r="node.performance.commDistance / 2"
+            fill="none"
+            stroke="#FF9800"
+            stroke-width="1.5"
+            stroke-dasharray="5,5"
+            opacity="0.4"
+          >
+            <title>通信范围: {{ node.performance.commDistance }}km</title>
+          </circle>
+        </g>
+
 
                 <!-- 节点主体 -->
                 <circle
@@ -414,6 +455,35 @@
               </g>
             </g>
           </g>
+  <!-- ==================== 比例尺显示 ==================== -->
+    <g class="scale-indicator" :transform="`translate(20, ${800 - 60})`">
+      <!-- 背景 -->
+      <rect x="0" y="0" width="220" height="50" fill="white" stroke="#ccc" stroke-width="1" opacity="0.9" rx="5" />
+      
+      <!-- 标题 -->
+      <text x="10" y="18" font-size="12" font-weight="bold" fill="#333">
+        比例尺
+      </text>
+      
+      <!-- 比例尺线条 -->
+      <line x1="10" y1="35" x2="110" y2="35" stroke="#333" stroke-width="2" />
+      <line x1="10" y1="30" x2="10" y2="40" stroke="#333" stroke-width="2" />
+      <line x1="110" y1="30" x2="110" y2="40" stroke="#333" stroke-width="2" />
+      
+      <!-- 距离标注 (100像素 = 200km) -->
+      <text x="60" y="32" text-anchor="middle" font-size="11" fill="#333">
+        200km
+      </text>
+      
+      <!-- 详细信息 -->
+      <text x="120" y="20" font-size="10" fill="#666">
+        1像素 = 2km
+      </text>
+      <text x="120" y="35" font-size="10" fill="#666">
+        战场: 2000×1600km
+      </text>
+    </g>
+
         </svg>
 
         <!-- 视图控制浮动按钮 -->
@@ -675,9 +745,68 @@ import {
   FullScreen
 } from '@element-plus/icons-vue'
 import { generateConnections } from '@/utils/networkGenerator'
+import { useEquipmentStore } from '@/store/modules/equipment'
 import FloatingLogoutButton from '@/components/Layout/FloatingLogoutButton.vue'
 import EquipmentSelector from '@/components/EquipmentSelector.vue'
 // ==================== 基础状态 ====================
+
+const SCALE_RATIO = 2 // 1像素 = 2km
+const CANVAS_WIDTH = 1000 // 画布宽度（像素）
+const CANVAS_HEIGHT = 800 // 画布高度（像素）
+const BATTLEFIELD_WIDTH = CANVAS_WIDTH * SCALE_RATIO // 战场宽度（km）
+const BATTLEFIELD_HEIGHT = CANVAS_HEIGHT * SCALE_RATIO // 战场高度（km）
+
+/**
+ * 将实际距离（km）转换为画布像素
+ */
+const kmToPixel = (km) => {
+  return km / SCALE_RATIO
+}
+
+/**
+ * 将画布像素转换为实际距离（km）
+ */
+const pixelToKm = (pixel) => {
+  return pixel * SCALE_RATIO
+}
+
+/**
+ * 获取默认性能参数（用于快速添加模式）
+ */
+const getDefaultPerformance = (baseType) => {
+  const defaults = {
+    sensor: {
+      detectionRange: 150,
+      detectionAccuracy: 10,
+      detectionProbability: 0.8,
+      resolution: 1.0,
+      frequency: 'X-band',
+      antiJamming: 0.7
+    },
+    command: {
+      commandRange: 200,
+      processingCapacity: 100,
+      decisionDelay: 5,
+      maxNodes: 20
+    },
+    striker: {
+      strikeRange: 100,
+      damageRate: 0.7,
+      responseTime: 10,
+      ammunition: 10,
+      accuracy: 15
+    },
+    support: {
+      commDistance: 200,
+      bandwidth: 50,
+      relayCapacity: 5,
+      reliability: 0.9
+    }
+  }
+  
+  return defaults[baseType] || {}
+}
+
 const networkMode = ref('mixed')
 const operationMode = ref('add')
 const showGrid = ref(true) // 默认显示网格
@@ -768,6 +897,9 @@ const currentProject = ref({
   name: '新建作战网络',
   id: null
 })
+// 装备store
+const equipmentStore = useEquipmentStore()
+
 const equipments = ref([])
 const showEquipmentSelector = ref(false)
 const addNodeMode = ref('quick') // 'quick' | 'from-equipment'
@@ -847,8 +979,8 @@ const enemyNodeCount = computed(() => nodes.value.filter(n => n.faction === 'red
 const handleEquipmentSelected = (equipment) => {
   if (!pendingNodePosition.value) return
 
-  // 映射装备类型到节点类型
-  const nodeType = `${equipment.type}_${equipment.faction}`
+  // 注意：v2.0使用 baseType 而不是 type
+  const nodeType = `${equipment.baseType}_${equipment.faction}`
   const typeConfig = getNodeTypeConfig(nodeType)
 
   if (!typeConfig) {
@@ -856,30 +988,28 @@ const handleEquipmentSelected = (equipment) => {
     return
   }
 
-  // 创建节点，包含装备信息
+  // 创建节点，包含完整装备信息（v2.0）
   const newNode = {
     id: `node_${nodeCounter.value++}`,
     type: nodeType,
-    baseType: equipment.type,
+    baseType: equipment.baseType,
     faction: equipment.faction,
     x: pendingNodePosition.value.x,
     y: pendingNodePosition.value.y,
     label: equipment.name,
 
-    // 保存完整的装备信息
+    // 保存完整的装备信息（v2.0）
     equipmentId: equipment.id,
-    equipmentCode: equipment.code,
-    equipmentData: {
-      name: equipment.name,
-      code: equipment.code,
-      manufacturer: equipment.manufacturer,
-      detection_range: equipment.detection_range || 0,
-      detection_accuracy: equipment.detection_accuracy || 0,
-      communication_range: equipment.communication_range || 0,
-      command_capacity: equipment.command_capacity || 0,
-      strike_range: equipment.strike_range || 0,
-      attack_power: equipment.attack_power || 0
-    }
+    model: equipment.model,  // ← v2.0 新增
+    performance: equipment.performance,  // ← v2.0 完整性能参数
+    
+    // 兼容旧代码：提取常用参数
+    detection_range: equipment.performance?.detectionRange || 0,
+    detection_accuracy: equipment.performance?.detectionAccuracy || 0,
+    communication_range: equipment.performance?.commDistance || equipment.performance?.commandRange || 0,
+    command_capacity: equipment.performance?.maxNodes || 0,
+    strike_range: equipment.performance?.strikeRange || 0,
+    attack_power: equipment.performance?.damageRate ? equipment.performance.damageRate * 100 : 0
   }
 
   nodes.value.push(newNode)
@@ -887,6 +1017,7 @@ const handleEquipmentSelected = (equipment) => {
 
   // 清空待放置位置
   pendingNodePosition.value = null
+  showEquipmentSelector.value = false
 }
 // ==================== 新增：判断边是否超出范围 ====================
 const isEdgeOutOfRange = (edge) => {
@@ -1095,6 +1226,76 @@ const handleConnectModeClick = (node) => {
   }
 }
 
+/**
+ * 根据装备性能智能判断连线类型和有效性
+ */
+const determineEdgeType = (sourceNode, targetNode) => {
+  const sourcePerf = sourceNode.performance || {}
+  const sameFaction = sourceNode.faction === targetNode.faction
+  
+  // 计算实际距离
+  const dx = targetNode.x - sourceNode.x
+  const dy = targetNode.y - sourceNode.y
+  const distancePixel = Math.sqrt(dx * dx + dy * dy)
+  const distanceKm = pixelToKm(distancePixel)
+  
+  let edgeType = null
+  let maxRange = 0
+  let isValid = false
+  
+  // 规则1：探测 - 传感器 → 敌方节点（范围内）
+  if (sourceNode.baseType === 'sensor' && !sameFaction) {
+    edgeType = 'detection'
+    maxRange = sourcePerf.detectionRange || 0
+    isValid = distanceKm <= maxRange
+  }
+  
+  // 规则2：通信 - 同阵营节点间（通信距离内）
+  else if (sameFaction) {
+    edgeType = 'communication'
+    
+    // 确定通信范围
+    if (sourceNode.baseType === 'support') {
+      maxRange = sourcePerf.commDistance || 0
+    } else if (sourceNode.baseType === 'command') {
+      maxRange = sourcePerf.commandRange || 0
+    } else if (sourceNode.baseType === 'sensor') {
+      maxRange = sourcePerf.commDistance || 100
+    } else if (sourceNode.baseType === 'striker') {
+      maxRange = 100  // 打击单元默认通信范围
+    }
+    
+    isValid = distanceKm <= maxRange
+  }
+  
+  // 规则3：指挥 - 指挥节点 → 同阵营节点（指挥范围内）
+  if (sameFaction && sourceNode.baseType === 'command') {
+    const commandRange = sourcePerf.commandRange || 0
+    if (distanceKm <= commandRange && targetNode.baseType !== 'command') {
+      edgeType = 'command'
+      maxRange = commandRange
+      isValid = true
+    }
+  }
+  
+  // 规则4：打击 - 打击节点 → 敌方节点（打击范围内）
+  if (sourceNode.baseType === 'striker' && !sameFaction) {
+    edgeType = 'strike'
+    maxRange = sourcePerf.strikeRange || 0
+    isValid = distanceKm <= maxRange
+  }
+  
+  return {
+    type: edgeType || 'unknown',
+    maxRange,
+    distance: distancePixel,
+    distanceKm,
+    isValid,
+    reason: !isValid ? `距离${distanceKm.toFixed(1)}km 超出最大范围${maxRange}km` : ''
+  }
+}
+
+
 const createManualEdge = (sourceId, targetId) => {
   const exists = edges.value.some(
     e => (e.source === sourceId && e.target === targetId) ||
@@ -1109,17 +1310,64 @@ const createManualEdge = (sourceId, targetId) => {
   const sourceNode = getNodeById(sourceId)
   const targetNode = getNodeById(targetId)
 
+  if (!sourceNode || !targetNode) {
+    ElMessage.error('节点不存在')
+    return
+  }
+
+  // ✅ 智能判断连线类型和有效性
+  const edgeInfo = determineEdgeType(sourceNode, targetNode)
+  
+  if (!edgeInfo.isValid) {
+    ElMessageBox.confirm(
+      `警告：${edgeInfo.reason}。是否仍要创建此连接？`,
+      '连接超出范围',
+      {
+        confirmButtonText: '仍然创建',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    ).then(() => {
+      createEdgeWithInfo(sourceNode, targetNode, edgeInfo, true)
+    }).catch(() => {})
+    return
+  }
+  
+  createEdgeWithInfo(sourceNode, targetNode, edgeInfo, false)
+}
+
+const createEdgeWithInfo = (sourceNode, targetNode, edgeInfo, outOfRange) => {
+  const edgeTypeLabels = {
+    detection: '探测',
+    communication: '通信',
+    command: '指挥',
+    strike: '打击',
+    unknown: '未知'
+  }
+  
   const newEdge = {
     id: `edge_${edgeCounter.value++}`,
-    source: sourceId,
-    target: targetId,
-    type: 'manual',
-    label: '手动连接',
-    crossFaction: sourceNode.faction !== targetNode.faction
+    source: sourceNode.id,
+    target: targetNode.id,
+    type: edgeInfo.type,  // ✅ 智能类型
+    label: edgeTypeLabels[edgeInfo.type] || '未知',
+    crossFaction: sourceNode.faction !== targetNode.faction,
+    
+    // ✅ 详细信息
+    distance: edgeInfo.distance,
+    distanceKm: edgeInfo.distanceKm,
+    maxRange: edgeInfo.maxRange,
+    outOfRange: outOfRange,
+    quality: outOfRange ? 0.5 : 1.0
   }
 
   edges.value.push(newEdge)
-  ElMessage.success(`已创建连接: ${sourceNode.label} → ${targetNode.label}`)
+  
+  const rangeWarning = outOfRange ? '（超出范围）' : ''
+  ElMessage.success(
+    `已创建${newEdge.label}连接: ${sourceNode.label} → ${targetNode.label} ` +
+    `(${edgeInfo.distanceKm.toFixed(1)}km) ${rangeWarning}`
+  )
 }
 
 // ==================== 布局算法 ====================
@@ -1274,15 +1522,20 @@ const handleExportNetwork = () => {
   }
 
   const exportData = {
-    version: '1.0',
+    version: '2.0',  // ✅ v2.0版本
     name: currentProject.value.name,
     networkMode: networkMode.value,
     timestamp: new Date().toISOString(),
+    scaleRatio: SCALE_RATIO,  // ✅ 比例尺信息
     metadata: {
       nodeCount: nodes.value.length,
       edgeCount: edges.value.length,
       friendlyNodeCount: friendlyNodeCount.value,
-      enemyNodeCount: enemyNodeCount.value
+      enemyNodeCount: enemyNodeCount.value,
+      battlefieldSize: {  // ✅ 战场尺寸
+        widthKm: BATTLEFIELD_WIDTH,
+        heightKm: BATTLEFIELD_HEIGHT
+      }
     },
     nodes: nodes.value.map(node => ({
       id: node.id,
@@ -1291,16 +1544,41 @@ const handleExportNetwork = () => {
       faction: node.faction,
       label: node.label,
       x: node.x,
-      y: node.y
+      y: node.y,
+      
+      // ✅ 完整的装备信息（v2.0）
+      equipmentId: node.equipmentId,
+      model: node.model,
+      performance: node.performance
     })),
-    edges: edges.value.map(edge => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      type: edge.type,
-      label: edge.label,
-      crossFaction: edge.crossFaction
-    })),
+    edges: edges.value.map(edge => {
+      // 计算边的实际距离
+      const sourceNode = nodes.value.find(n => n.id === edge.source)
+      const targetNode = nodes.value.find(n => n.id === edge.target)
+      let distance = 0
+      let distanceKm = 0
+      
+      if (sourceNode && targetNode) {
+        const dx = targetNode.x - sourceNode.x
+        const dy = targetNode.y - sourceNode.y
+        distance = Math.sqrt(dx * dx + dy * dy)
+        distanceKm = pixelToKm(distance)
+      }
+      
+      return {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: edge.type,
+        label: edge.label,
+        crossFaction: edge.crossFaction,
+        
+        // ✅ 边的详细信息
+        distance: distance,
+        distanceKm: distanceKm.toFixed(1),
+        quality: edge.quality || 1.0
+      }
+    }),
     viewTransform: {
       scale: viewTransform.scale,
       translateX: viewTransform.translateX,
@@ -1308,7 +1586,7 @@ const handleExportNetwork = () => {
     }
   }
 
-  const fileName = `network_${currentProject.value.name}_${Date.now()}.json`
+  const fileName = `network_v2_${currentProject.value.name}_${Date.now()}.json`
   const blob = new Blob([JSON.stringify(exportData, null, 2)], {
     type: 'application/json'
   })
@@ -1320,74 +1598,7 @@ const handleExportNetwork = () => {
   link.click()
 
   URL.revokeObjectURL(url)
-
-  // 提示保存路径
-  ElMessage.success({
-    message: `网络已导出为: ${fileName}`,
-    duration: 5000,
-    showClose: true
-  })
-}
-
-const handleImportNetwork = () => {
-  fileInput.value.click()
-}
-
-const handleFileSelected = (event) => {
-  const file = event.target.files[0]
-  if (!file) return
-
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    try {
-      const data = JSON.parse(e.target.result)
-
-      if (!data.nodes || !data.edges) {
-        throw new Error('无效的网络数据格式')
-      }
-
-      ElMessageBox.confirm(
-        `确定要导入网络 "${data.name || '未命名'}" 吗？当前画布内容将被替换。`,
-        '确认导入',
-        {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-      ).then(() => {
-        nodes.value = data.nodes
-        edges.value = data.edges
-        networkMode.value = data.networkMode || 'mixed'
-        currentProject.value.name = data.name || '导入的网络'
-
-        if (data.viewTransform) {
-          viewTransform.scale = data.viewTransform.scale
-          viewTransform.translateX = data.viewTransform.translateX
-          viewTransform.translateY = data.viewTransform.translateY
-        }
-
-        nodeCounter.value = Math.max(...nodes.value.map(n => {
-          const match = n.id.match(/\d+/)
-          return match ? parseInt(match[0]) : 0
-        }), 0) + 1
-
-        edgeCounter.value = Math.max(...edges.value.map(e => {
-          const match = e.id.match(/\d+/)
-          return match ? parseInt(match[0]) : 0
-        }), 0) + 1
-
-        selectedNode.value = null
-
-        ElMessage.success(`已导入网络: ${data.name || '未命名'}`)
-        nextTick(() => handleFitView())
-      }).catch(() => {})
-    } catch (error) {
-      ElMessage.error('导入失败: ' + error.message)
-    }
-  }
-
-  reader.readAsText(file)
-  event.target.value = ''
+  ElMessage.success('网络已导出（v2.0格式）')
 }
 
 // ==================== 原有方法 ====================
@@ -1429,7 +1640,7 @@ const handleCanvasClick = (event) => {
     pendingNodePosition.value = { x, y }
     showEquipmentSelector.value = true
   } else {
-    // 快速添加模式 - 原有逻辑
+    // 快速添加模式 - 使用默认性能参数
     const typeConfig = getNodeTypeConfig(selectedNodeType.value)
     const newNode = {
       id: `node_${nodeCounter.value++}`,
@@ -1438,14 +1649,17 @@ const handleCanvasClick = (event) => {
       faction: typeConfig.faction,
       x: x,
       y: y,
-      label: `${typeConfig.name}${nodeCounter.value}`
+      label: `${typeConfig.name}${nodeCounter.value}`,
+      
+      // ✅ 添加默认的装备信息
+      model: `${typeConfig.name}-标准型`,
+      performance: getDefaultPerformance(typeConfig.baseType)
     }
 
     nodes.value.push(newNode)
     ElMessage.success(`已添加 ${typeConfig.name}`)
   }
 }
-
 const handleNodeClick = (node) => {
   if (deleteMode.value) {
     handleDeleteNode(node)
@@ -1794,19 +2008,16 @@ onMounted(() => {
   }
 })
 const loadEquipments = () => {
-  // 从localStorage加载
-  const savedEquipments = localStorage.getItem('equipments')
-  if (savedEquipments) {
-    try {
-      const data = JSON.parse(savedEquipments)
-      equipments.value = Array.isArray(data) ? data : []
-      console.log('已加载装备数据:', equipments.value.length, '个装备')
-    } catch (error) {
-      console.error('加载装备数据失败:', error)
-      equipments.value = []
-    }
-  } else {
-    equipments.value = []
+  // 从 equipmentStore 加载
+  equipmentStore.restoreFromStorage()
+  equipments.value = equipmentStore.allEquipment
+  console.log('✅ 已加载装备数据:', equipments.value.length, '个装备')
+  
+  // 打印第一个装备验证
+  if (equipments.value.length > 0) {
+    console.log('第一个装备:', equipments.value[0])
+    console.log('是否有model:', equipments.value[0].model)
+    console.log('是否有performance:', equipments.value[0].performance)
   }
 }
 </script>
