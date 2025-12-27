@@ -414,23 +414,52 @@ const handleFileSelect = (file) => {
 // 导入网络数据
 const importNetworkData = (data) => {
   try {
-    // 转换节点数据
-    const nodes = data.nodes.map(node => ({
-      id: node.id,
-      name: node.label || node.name || node.id,
-      type: node.baseType || node.type || 'unknown',
-      faction: node.faction,
-      x: node.x,
-      y: node.y,
-      hp: 100,
-      color: node.faction === 'red' ? '#F56C6C' : '#409EFF',
-      // 保存原始数据
-      baseType: node.baseType,
-      originalType: node.type
-    }))
+    console.log('📥 开始导入网络数据...')
+    console.log('  原始数据:', data)
+
+    // 检查数据格式
+    if (!data.nodes || !Array.isArray(data.nodes)) {
+      throw new Error('无效的网络数据格式：缺少nodes数组')
+    }
+
+    console.log(`  发现 ${data.nodes.length} 个节点`)
+    console.log(`  发现 ${data.edges?.length || 0} 条边`)
+
+    // 转换节点数据 - 保留所有重要字段
+    const nodes = data.nodes.map(node => {
+      const convertedNode = {
+        id: node.id,
+        name: node.label || node.name || node.id,
+        type: node.baseType || node.type || 'unknown',
+        faction: node.faction,
+        x: node.x,
+        y: node.y,
+        hp: node.hp || 100,
+        color: node.color || (node.faction === 'red' ? '#F56C6C' : '#409EFF'),
+        // 保存原始数据
+        baseType: node.baseType || node.type,
+        originalType: node.type,
+        label: node.label
+      }
+
+      // ✅ 关键修复：保留装备信息
+      if (node.equipmentId) {
+        convertedNode.equipmentId = node.equipmentId
+        convertedNode.equipmentCode = node.equipmentCode
+        convertedNode.equipmentData = node.equipmentData
+        console.log(`  ✓ 节点 ${node.id} 包含装备: ${node.equipmentData?.name || '未知'}`)
+      }
+
+      return convertedNode
+    })
+
+    // 统计装备节点
+    const equipmentNodeCount = nodes.filter(n => n.equipmentId).length
+    console.log(`  装备节点: ${equipmentNodeCount}/${nodes.length}`)
 
     // 转换边数据
     const edges = data.edges || []
+    console.log(`  边数据: ${edges.length} 条`)
 
     // 设置到Store
     networkStore.setNetwork({
@@ -444,9 +473,16 @@ const importNetworkData = (data) => {
       }
     })
 
-    ElMessage.success(`成功导入网络: ${nodes.length} 个节点`)
+    console.log('✅ 导入完成！')
+    console.log(`  存入Store: ${networkStore.nodes.length} 个节点`)
+
+    ElMessage.success(`成功导入网络: ${nodes.length} 个节点 (含${equipmentNodeCount}个装备)`)
     addLog(`导入网络成功: ${data.name || '未命名网络'}`, 'success')
     addLog(`节点数: ${nodes.length}, 我方: ${nodes.filter(n => n.faction === 'blue').length}, 敌方: ${nodes.filter(n => n.faction === 'red').length}`, 'info')
+
+    if (equipmentNodeCount > 0) {
+      addLog(`装备节点: ${equipmentNodeCount} 个`, 'info')
+    }
 
     // 自动适应视图
     nextTick(() => {
@@ -454,8 +490,9 @@ const importNetworkData = (data) => {
     })
 
   } catch (error) {
+    console.error('❌ 导入失败:', error)
     ElMessage.error('导入失败: ' + error.message)
-    console.error('导入错误:', error)
+    addLog(`导入失败: ${error.message}`, 'danger')
   }
 }
 

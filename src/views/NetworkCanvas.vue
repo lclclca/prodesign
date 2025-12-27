@@ -1286,6 +1286,13 @@ const handleExportNetwork = () => {
   // 同步数据到Store
   syncToStore()
 
+  // 统计装备节点数量
+  const equipmentNodeCount = nodes.value.filter(n => n.equipmentId).length
+  console.log('📤 开始导出网络...')
+  console.log(`  总节点数: ${nodes.value.length}`)
+  console.log(`  装备节点: ${equipmentNodeCount}`)
+  console.log(`  连接数: ${edges.value.length}`)
+
   const exportData = {
     version: '1.0',
     name: currentProject.value.name,
@@ -1295,21 +1302,30 @@ const handleExportNetwork = () => {
       nodeCount: nodes.value.length,
       edgeCount: edges.value.length,
       friendlyNodeCount: friendlyNodeCount.value,
-      enemyNodeCount: enemyNodeCount.value
+      enemyNodeCount: enemyNodeCount.value,
+      equipmentNodeCount: equipmentNodeCount  // 新增：装备节点统计
     },
-    nodes: nodes.value.map(node => ({
-      id: node.id,
-      type: node.type,
-      baseType: node.baseType,
-      faction: node.faction,
-      label: node.label,
-      x: node.x,
-      y: node.y,
+    nodes: nodes.value.map(node => {
+      const exportNode = {
+        id: node.id,
+        type: node.type,
+        baseType: node.baseType,
+        faction: node.faction,
+        label: node.label,
+        x: node.x,
+        y: node.y
+      }
+
       // 如果有装备信息，也导出
-      equipmentId: node.equipmentId,
-      equipmentCode: node.equipmentCode,
-      equipmentData: node.equipmentData
-    })),
+      if (node.equipmentId) {
+        exportNode.equipmentId = node.equipmentId
+        exportNode.equipmentCode = node.equipmentCode
+        exportNode.equipmentData = node.equipmentData
+        console.log(`  ✓ 节点 ${node.id} 包含装备: ${node.equipmentData?.name || '未知'}`)
+      }
+
+      return exportNode
+    }),
     edges: edges.value.map(edge => ({
       id: edge.id,
       source: edge.source,
@@ -1338,9 +1354,13 @@ const handleExportNetwork = () => {
 
   URL.revokeObjectURL(url)
 
+  console.log('✅ 导出完成！')
+  console.log(`  文件名: ${fileName}`)
+  console.log(`  装备节点: ${equipmentNodeCount}/${nodes.value.length}`)
+
   // 提示保存路径
   ElMessage.success({
-    message: `网络已导出为: ${fileName}，数据已同步到Store`,
+    message: `网络已导出: ${fileName} (含${equipmentNodeCount}个装备节点)`,
     duration: 5000,
     showClose: true
   })
@@ -1808,18 +1828,34 @@ const goToSimulation = () => {
 // ==================== 新增：数据同步函数 ====================
 // 将本地数据同步到Store
 const syncToStore = () => {
-  console.log('同步网络数据到Store...', nodes.value.length, '个节点,', edges.value.length, '条边')
+  const equipmentNodeCount = nodes.value.filter(n => n.equipmentId).length
+
+  console.log('🔄 同步网络数据到Store...')
+  console.log(`  节点数: ${nodes.value.length}`)
+  console.log(`  装备节点: ${equipmentNodeCount}`)
+  console.log(`  边数: ${edges.value.length}`)
 
   networkStore.setNetwork({
-    nodes: nodes.value.map(node => ({
-      ...node,
-      // 确保有HP属性（推演需要）
-      hp: node.hp || 100,
-      // 确保有name属性
-      name: node.label || node.name || node.id,
-      // 确保有color属性
-      color: node.color || (node.faction === 'red' ? '#F56C6C' : '#409EFF')
-    })),
+    nodes: nodes.value.map(node => {
+      const storeNode = {
+        ...node,
+        // 确保有HP属性（推演需要）
+        hp: node.hp || 100,
+        // 确保有name属性
+        name: node.label || node.name || node.id,
+        // 确保有color属性
+        color: node.color || (node.faction === 'red' ? '#F56C6C' : '#409EFF')
+      }
+
+      // ✅ 关键：保留装备信息
+      if (node.equipmentId) {
+        storeNode.equipmentId = node.equipmentId
+        storeNode.equipmentCode = node.equipmentCode
+        storeNode.equipmentData = node.equipmentData
+      }
+
+      return storeNode
+    }),
     edges: edges.value,
     project: {
       name: currentProject.value.name || '网络构建项目',
@@ -1827,7 +1863,10 @@ const syncToStore = () => {
     }
   })
 
-  console.log('同步完成，Store中现有:', networkStore.nodes.length, '个节点')
+  const storedEquipmentCount = networkStore.nodes.filter(n => n.equipmentId).length
+  console.log('✅ 同步完成！')
+  console.log(`  Store中现有: ${networkStore.nodes.length} 个节点`)
+  console.log(`  装备节点: ${storedEquipmentCount}`)
 }
 
 // 从Store加载数据到本地
