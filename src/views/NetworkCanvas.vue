@@ -29,6 +29,9 @@
         <el-button @click="handleEvaluate" :icon="DataAnalysis" type="success">
           评估网络
         </el-button>
+        <el-button @click="goToSimulation" type="warning" style="margin-left: 10px;">
+          🎯 前往推演
+        </el-button>
         <el-button @click="handleClearCanvas" :icon="Delete" type="danger">
           清空画布
         </el-button>
@@ -658,6 +661,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 import {
   Document,
   DataAnalysis,
@@ -677,6 +681,12 @@ import {
 import { generateConnections } from '@/utils/networkGenerator'
 import FloatingLogoutButton from '@/components/Layout/FloatingLogoutButton.vue'
 import EquipmentSelector from '@/components/EquipmentSelector.vue'
+import { useNetworkStore } from '@/store/modules/network'
+
+// ==================== Store and Router ====================
+const networkStore = useNetworkStore()
+const router = useRouter()
+
 // ==================== 基础状态 ====================
 const networkMode = ref('mixed')
 const operationMode = ref('add')
@@ -1273,6 +1283,9 @@ const handleExportNetwork = () => {
     return
   }
 
+  // 同步数据到Store
+  syncToStore()
+
   const exportData = {
     version: '1.0',
     name: currentProject.value.name,
@@ -1291,7 +1304,11 @@ const handleExportNetwork = () => {
       faction: node.faction,
       label: node.label,
       x: node.x,
-      y: node.y
+      y: node.y,
+      // 如果有装备信息，也导出
+      equipmentId: node.equipmentId,
+      equipmentCode: node.equipmentCode,
+      equipmentData: node.equipmentData
     })),
     edges: edges.value.map(edge => ({
       id: edge.id,
@@ -1323,7 +1340,7 @@ const handleExportNetwork = () => {
 
   // 提示保存路径
   ElMessage.success({
-    message: `网络已导出为: ${fileName}`,
+    message: `网络已导出为: ${fileName}，数据已同步到Store`,
     duration: 5000,
     showClose: true
   })
@@ -1378,7 +1395,10 @@ const handleFileSelected = (event) => {
 
         selectedNode.value = null
 
-        ElMessage.success(`已导入网络: ${data.name || '未命名'}`)
+        // 同步到Store
+        syncToStore()
+
+        ElMessage.success(`已导入网络: ${data.name || '未命名'}，数据已同步到Store`)
         nextTick(() => handleFitView())
       }).catch(() => {})
     } catch (error) {
@@ -1647,6 +1667,9 @@ const evaluateNetworkLocally = (evalNodes, evalEdges) => {
 }
 
 const handleSaveProject = () => {
+  // 同步数据到Store
+  syncToStore()
+
   const projectData = {
     name: currentProject.value.name,
     nodes: nodes.value,
@@ -1657,7 +1680,7 @@ const handleSaveProject = () => {
   }
 
   localStorage.setItem('currentProject', JSON.stringify(projectData))
-  ElMessage.success('项目已保存到本地存储')
+  ElMessage.success('项目已保存到本地存储和Store')
 }
 
 const handleClearCanvas = () => {
@@ -1764,8 +1787,103 @@ const getMetricName = (key) => {
   return names[key] || key
 }
 
+// ==================== 新增：前往推演 ====================
+const goToSimulation = () => {
+  if (nodes.value.length === 0) {
+    ElMessage.warning('请先构建网络再进行推演')
+    return
+  }
+
+  // 同步数据到Store
+  syncToStore()
+
+  ElMessage.success('网络数据已同步，正在跳转到推演页面...')
+
+  // 跳转到推演页面
+  setTimeout(() => {
+    router.push('/simulation')
+  }, 500)
+}
+
+// ==================== 新增：数据同步函数 ====================
+// 将本地数据同步到Store
+const syncToStore = () => {
+  console.log('同步网络数据到Store...', nodes.value.length, '个节点,', edges.value.length, '条边')
+
+  networkStore.setNetwork({
+    nodes: nodes.value.map(node => ({
+      ...node,
+      // 确保有HP属性（推演需要）
+      hp: node.hp || 100,
+      // 确保有name属性
+      name: node.label || node.name || node.id,
+      // 确保有color属性
+      color: node.color || (node.faction === 'red' ? '#F56C6C' : '#409EFF')
+    })),
+    edges: edges.value,
+    project: {
+      name: currentProject.value.name || '网络构建项目',
+      id: currentProject.value.id
+    }
+  })
+
+  console.log('同步完成，Store中现有:', networkStore.nodes.length, '个节点')
+}
+
+// 从Store加载数据到本地
+const loadFromStore = () => {
+  if (!networkStore.isEmpty) {
+    console.log('从Store加载网络数据...', networkStore.nodes.length, '个节点')
+
+    nodes.value = networkStore.nodes.map(node => ({
+      id: node.id,
+      type: node.type || `${node.baseType}_${node.faction}`,
+      baseType: node.baseType,
+      faction: node.faction,
+      label: node.label || node.name || node.id,
+      x: node.x,
+      y: node.y,
+      equipmentId: node.equipmentId,
+      equipmentCode: node.equipmentCode,
+      equipmentData: node.equipmentData
+    }))
+
+    edges.value = networkStore.edges
+
+    if (networkStore.currentProject) {
+      currentProject.value.name = networkStore.currentProject.name || '网络构建项目'
+      currentProject.value.id = networkStore.currentProject.id
+    }
+
+    // 更新计数器
+    if (nodes.value.length > 0) {
+      nodeCounter.value = Math.max(...nodes.value.map(n => {
+        const match = n.id.match(/\d+/)
+        return match ? parseInt(match[0]) : 0
+      }), 0) + 1
+    }
+
+    if (edges.value.length > 0) {
+      edgeCounter.value = Math.max(...edges.value.map(e => {
+        const match = e.id.match(/\d+/)
+        return match ? parseInt(match[0]) : 0
+      }), 0) + 1
+    }
+
+    ElMessage.success(`从Store加载了 ${nodes.value.length} 个节点`)
+    console.log('加载完成')
+  }
+}
+
 onMounted(() => {
   loadEquipments()
+
+  // 优先从Store加载数据
+  if (!networkStore.isEmpty) {
+    loadFromStore()
+    nextTick(() => handleFitView())
+    return
+  }
   const saved = localStorage.getItem('currentProject')
   if (saved) {
     try {
