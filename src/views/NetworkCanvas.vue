@@ -1588,8 +1588,43 @@ const handleEvaluate = async () => {
   try {
     evaluationResult.value = evaluateNetworkLocally(friendlyNodes, friendlyEdges)
     showEvaluationDialog.value = true
+
+    // 保存评估历史到 localStorage
+    saveEvaluationHistory(evaluationResult.value)
   } catch (error) {
     ElMessage.error('评估失败：' + error.message)
+  }
+}
+
+// 保存评估历史
+const saveEvaluationHistory = (result) => {
+  try {
+    // 获取现有历史
+    const historyData = localStorage.getItem('evaluationHistory')
+    let history = historyData ? JSON.parse(historyData) : []
+
+    // 添加新的评估记录
+    const newRecord = {
+      id: Date.now(),
+      projectName: currentProject.value.name || '未命名项目',
+      timestamp: new Date().toISOString(),
+      overall_score: result.overall_score,
+      metrics: result.metrics,
+      nodeCount: nodes.value.filter(n => n.faction === 'blue').length,
+      edgeCount: edges.value.length
+    }
+
+    history.unshift(newRecord) // 添加到开头
+
+    // 只保留最近50条记录
+    if (history.length > 50) {
+      history = history.slice(0, 50)
+    }
+
+    localStorage.setItem('evaluationHistory', JSON.stringify(history))
+    console.log('✅ 评估历史已保存')
+  } catch (error) {
+    console.error('❌ 保存评估历史失败:', error)
   }
 }
 
