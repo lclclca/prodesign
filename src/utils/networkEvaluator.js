@@ -353,11 +353,11 @@ function identifyVulnerabilities(nodes, edges, nodeTypes) {
 }
 
 /**
- * 生成优化建议
+ * 生成优化建议（增强版）
  */
 function generateSuggestions(nodes, edges, nodeTypes, vulnerabilities) {
   const suggestions = []
-  
+
   // 基于脆弱性生成建议
   vulnerabilities.forEach(vuln => {
     switch (vuln.type) {
@@ -366,28 +366,43 @@ function generateSuggestions(nodes, edges, nodeTypes, vulnerabilities) {
           priority: 'high',
           title: '连接孤立节点',
           description: '将孤立节点移动到其他节点的通信范围内，或增加中继节点建立连接。',
-          expected_effect: '提高网络连通性和可靠性'
+          expected_effect: '提高网络连通性和可靠性',
+          action_steps: [
+            '识别孤立节点的位置',
+            '计算与最近节点的距离',
+            '调整节点位置或添加中继节点建立连接路径'
+          ]
         })
         break
-      
+
       case 'single_point_failure':
         suggestions.push({
           priority: 'high',
           title: '增加冗余节点',
           description: '在关键节点周围部署备份节点，建立多条通信路径，避免单点故障。',
-          expected_effect: '提高网络鲁棒性和抗毁性'
+          expected_effect: '提高网络鲁棒性和抗毁性',
+          action_steps: [
+            '在关键节点附近部署备份节点',
+            '建立备用通信链路',
+            '配置自动故障切换机制'
+          ]
         })
         break
-      
+
       case 'coverage_gap':
         suggestions.push({
           priority: 'medium',
           title: '增加传感器部署',
           description: '在覆盖盲区增加传感器节点，扩大探测范围。',
-          expected_effect: '提高区域覆盖率和目标探测能力'
+          expected_effect: '提高区域覆盖率和目标探测能力',
+          action_steps: [
+            '识别覆盖盲区位置',
+            '在盲区中心部署新的传感器节点',
+            '调整传感器探测参数以优化覆盖'
+          ]
         })
         break
-      
+
       case 'missing_sensor':
       case 'missing_command':
       case 'missing_striker':
@@ -395,44 +410,169 @@ function generateSuggestions(nodes, edges, nodeTypes, vulnerabilities) {
           priority: 'high',
           title: '补充缺失的节点类型',
           description: `添加${vuln.title.replace('缺少', '')}，构建完整的侦察-指挥-打击链。`,
-          expected_effect: '形成完整的作战体系'
+          expected_effect: '形成完整的作战体系',
+          action_steps: [
+            '选择合适的节点类型和装备型号',
+            '确定最优部署位置',
+            '建立与现有节点的通信连接'
+          ]
         })
         break
-      
+
       case 'disconnected_network':
         suggestions.push({
           priority: 'high',
           title: '建立网络连接',
           description: '调整节点位置或增加中继节点，确保所有节点互联互通。',
-          expected_effect: '提高网络连通性'
+          expected_effect: '提高网络连通性',
+          action_steps: [
+            '识别未连通的节点组',
+            '规划连接路径',
+            '部署中继节点或调整节点位置'
+          ]
         })
         break
     }
   })
-  
-  // 基于节点数量和密度的建议
+
+  // 计算各项指标以提供更精准的建议
+  const connectivity = evaluateConnectivity(nodes, edges)
+  const coverage = evaluateCoverage(nodes, nodeTypes)
+  const redundancy = evaluateRedundancy(nodes, edges)
+  const efficiency = evaluateEfficiency(nodes, edges)
+
+  // 基于连通性的建议
+  if (connectivity < 0.8 && connectivity >= 0.5) {
+    suggestions.push({
+      priority: 'medium',
+      title: '提升网络连通性',
+      description: `当前网络连通性为 ${(connectivity * 100).toFixed(1)}%，建议增加节点间连接以提升至90%以上。`,
+      expected_effect: `预期提升连通性 ${((0.9 - connectivity) * 100).toFixed(1)}%`,
+      action_steps: [
+        '识别连通性薄弱区域',
+        '优化节点间距和通信半径',
+        '增加关键连接边'
+      ]
+    })
+  }
+
+  // 基于覆盖率的建议
+  if (coverage > 0 && coverage < 0.7) {
+    const targetCoverage = 0.8
+    const coverageGap = targetCoverage - coverage
+    const estimatedSensors = Math.ceil(coverageGap / 0.15)
+
+    suggestions.push({
+      priority: 'medium',
+      title: '扩大传感器覆盖范围',
+      description: `当前覆盖率为 ${(coverage * 100).toFixed(1)}%，建议增加 ${estimatedSensors} 个传感器节点以达到80%覆盖。`,
+      expected_effect: `覆盖率提升至 ${(targetCoverage * 100).toFixed(0)}%`,
+      action_steps: [
+        `在盲区部署 ${estimatedSensors} 个传感器`,
+        '优化传感器探测半径配置',
+        '验证新增覆盖区域'
+      ]
+    })
+  }
+
+  // 基于冗余度的建议
+  if (redundancy < 0.5 && nodes.length >= 3) {
+    suggestions.push({
+      priority: 'medium',
+      title: '增强网络冗余性',
+      description: `当前网络冗余度较低 (${(redundancy * 100).toFixed(1)}%)，建议增加节点间连接数量。`,
+      expected_effect: '提高网络容错能力和生存性',
+      action_steps: [
+        '为每个节点至少建立3条连接',
+        '创建备用通信路径',
+        '部署备份节点'
+      ]
+    })
+  }
+
+  // 基于效率的建议
+  if (efficiency < 0.6 && efficiency > 0) {
+    suggestions.push({
+      priority: 'low',
+      title: '优化信息传递路径',
+      description: `当前信息传递效率为 ${(efficiency * 100).toFixed(1)}%，存在较长的传递链路。`,
+      expected_effect: '缩短侦察-打击时间，提升作战响应速度',
+      action_steps: [
+        '减少传感器到打击单元的跳数',
+        '优化指挥节点位置',
+        '建立直连通信链路'
+      ]
+    })
+  }
+
+  // 基于节点数量的建议
   if (nodes.length < 5) {
     suggestions.push({
       priority: 'medium',
       title: '增加节点数量',
-      description: '当前节点数量较少，建议增加到5个以上以提高网络冗余度。',
-      expected_effect: '提高网络规模和可靠性'
+      description: `当前节点数量为 ${nodes.length} 个，建议增加到5-8个以提高网络冗余度。`,
+      expected_effect: '提高网络规模、冗余度和抗毁性',
+      action_steps: [
+        `至少增加 ${5 - nodes.length} 个节点`,
+        '保持传感器:指挥:打击 = 2:1:1的比例',
+        '均匀分布节点位置'
+      ]
     })
   }
-  
+
+  // 基于节点类型平衡性的建议
+  const typeCount = {}
+  nodes.forEach(node => {
+    typeCount[node.type] = (typeCount[node.type] || 0) + 1
+  })
+
+  const sensorCount = typeCount.sensor || 0
+  const commandCount = typeCount.command || 0
+  const strikerCount = typeCount.striker || 0
+
+  // 检查节点类型比例
+  if (sensorCount > 0 && commandCount > 0 && strikerCount > 0) {
+    const ratio = sensorCount / (commandCount || 1)
+    if (ratio < 1.5) {
+      suggestions.push({
+        priority: 'low',
+        title: '优化节点类型配比',
+        description: '传感器数量相对不足，建议传感器:指挥:打击比例维持在2:1:1左右。',
+        expected_effect: '提高目标探测覆盖能力',
+        action_steps: [
+          `增加 ${Math.ceil(commandCount * 2 - sensorCount)} 个传感器节点`,
+          '确保每个作战区域有足够的传感器覆盖',
+          '保持侦察-指挥-打击链路平衡'
+        ]
+      })
+    }
+  }
+
   // 基于连接密度的建议
   const maxPossibleEdges = nodes.length * (nodes.length - 1) / 2
   const density = maxPossibleEdges > 0 ? edges.length / maxPossibleEdges : 0
-  
+
   if (density < 0.3 && nodes.length >= 3) {
+    const targetEdges = Math.ceil(maxPossibleEdges * 0.4)
+    const edgesNeeded = targetEdges - edges.length
+
     suggestions.push({
       priority: 'low',
       title: '优化节点布局',
-      description: '当前节点间距离较远，建议调整节点位置或增大通信半径以增加连接。',
-      expected_effect: '提高网络连接密度和信息传递效率'
+      description: `当前网络连接密度为 ${(density * 100).toFixed(1)}%，建议增加 ${edgesNeeded} 条连接边。`,
+      expected_effect: '提高网络连接密度和信息传递效率',
+      action_steps: [
+        '调整节点位置使其更加紧密',
+        '增大节点通信半径',
+        `建立 ${edgesNeeded} 条新的通信连接`
+      ]
     })
   }
-  
+
+  // 按优先级排序建议
+  const priorityOrder = { high: 1, medium: 2, low: 3 }
+  suggestions.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority])
+
   return suggestions
 }
 
@@ -464,13 +604,15 @@ export async function evaluateNetwork(nodes, edges, nodeTypes) {
         reliability: 0.15
       }
       
-      const overall_score = 
-        connectivity * weights.connectivity * 100 +
-        coverage * weights.coverage * 100 +
-        redundancy * weights.redundancy * 100 +
-        robustness * weights.robustness * 100 +
-        efficiency * weights.efficiency * 100 +
-        reliability * weights.reliability * 100
+      // 修复: 先计算加权平均(0-1范围),然后乘以100转换为百分制(0-100)
+      const overall_score = (
+        connectivity * weights.connectivity +
+        coverage * weights.coverage +
+        redundancy * weights.redundancy +
+        robustness * weights.robustness +
+        efficiency * weights.efficiency +
+        reliability * weights.reliability
+      ) * 100
       
       // 识别问题
       const vulnerabilities = identifyVulnerabilities(nodes, edges, nodeTypes)
