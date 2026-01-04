@@ -1,10 +1,12 @@
 // 数据库初始化脚本
 // 位置: backend/scripts/initDatabase.js
 
-const { sequelize } = require('../config/database');
+const { sequelize } = require('../config/database_config');
 const User = require('../models/User');
-const Equipment = require('../models/Equipment');
-const Network = require('../models/Network');
+const Equipment = require('../models/Equipment_model');
+const Network = require('../models/Network_model');
+const Project = require('../models/Project_model');
+const EvaluationHistory = require('../models/EvaluationHistory_model');
 const CryptoJS = require('crypto-js');
 
 // 预置装备数据
@@ -278,6 +280,34 @@ const initDatabase = async () => {
       created_by: users[0].id
     });
     console.log('✅ 创建了示例网络');
+
+    // 5. 创建示例项目
+    console.log('创建示例项目...');
+    const sampleProjects = await Project.bulkCreate([
+      {
+        name: '防空作战网络A',
+        description: '区域防空作战网络配置',
+        status: 'active',
+        nodes: [],
+        edges: [],
+        node_count: 0,
+        edge_count: 0,
+        network_mode: 'both',
+        created_by: users[0].id
+      },
+      {
+        name: '反导作战网络B',
+        description: '反导防御网络配置',
+        status: 'active',
+        nodes: [],
+        edges: [],
+        node_count: 0,
+        edge_count: 0,
+        network_mode: 'both',
+        created_by: users[1].id
+      }
+    ]);
+    console.log(`✅ 创建了 ${sampleProjects.length} 个示例项目`);
 
     console.log('\n🎉 数据库初始化完成！');
     console.log('\n默认账号：');
