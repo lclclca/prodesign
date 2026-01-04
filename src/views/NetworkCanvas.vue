@@ -349,24 +349,24 @@
                 @click.stop="handleNodeClick(node)"
                 @contextmenu.prevent="handleNodeRightClick(node, $event)"
               >
-                <!-- 节点半径圈 -->
+                <!-- 节点半径圈 - 根据装备实际范围或默认配置 -->
                 <circle
                   v-if="node.baseType === 'sensor'"
-                  :r="getNodeTypeConfig(node.type).detection_radius"
+                  :r="getNodeRadius(node, 'detection')"
                   :fill="getNodeTypeConfig(node.type).color"
                   opacity="0.1"
                   class="node-radius"
                 />
                 <circle
                   v-if="node.baseType === 'command'"
-                  :r="getNodeTypeConfig(node.type).communication_radius"
+                  :r="getNodeRadius(node, 'communication')"
                   :fill="getNodeTypeConfig(node.type).color"
                   opacity="0.1"
                   class="node-radius"
                 />
                 <circle
                   v-if="node.baseType === 'striker'"
-                  :r="getNodeTypeConfig(node.type).strike_radius"
+                  :r="getNodeRadius(node, 'strike')"
                   :fill="getNodeTypeConfig(node.type).color"
                   opacity="0.1"
                   class="node-radius"
@@ -912,15 +912,16 @@ const isEdgeOutOfRange = (edge) => {
   const dy = targetNode.y - sourceNode.y
   const distance = Math.sqrt(dx * dx + dy * dy)
 
-  const sourceConfig = getNodeTypeConfig(sourceNode.type)
-
-  // 根据边类型判断
+  // 根据边类型判断，使用节点的实际范围值
   if (edge.type === 'detection' && sourceNode.baseType === 'sensor') {
-    return distance > sourceConfig.detection_radius
+    const detectionRadius = getNodeRadius(sourceNode, 'detection')
+    return distance > detectionRadius
   } else if (edge.type === 'communication') {
-    return distance > sourceConfig.communication_radius
+    const communicationRadius = getNodeRadius(sourceNode, 'communication')
+    return distance > communicationRadius
   } else if (edge.type === 'strike' && sourceNode.baseType === 'striker') {
-    return distance > sourceConfig.strike_radius
+    const strikeRadius = getNodeRadius(sourceNode, 'strike')
+    return distance > strikeRadius
   }
 
   return false
@@ -1644,23 +1645,104 @@ const evaluateNetworkLocally = (evalNodes, evalEdges) => {
     })
   }
 
-  // 计算连通性
+  // 计算连通性（使用BFS检查所有节点是否互相连通）
   let connectivity = 0
-  if (evalNodes.length > 1) {
-    connectivity = evalEdges.length / ((evalNodes.length * (evalNodes.length - 1)) / 2)
+  if (evalNodes.length > 0) {
+    if (evalNodes.length === 1) {
+      connectivity = 1
+    } else {
+      // 构建邻接表
+      const adjacency = {}
+      evalNodes.forEach(node => {
+        adjacency[node.id] = []
+      })
+
+      evalEdges.forEach(edge => {
+        if (!adjacency[edge.source]) adjacency[edge.source] = []
+        if (!adjacency[edge.target]) adjacency[edge.target] = []
+        adjacency[edge.source].push(edge.target)
+        adjacency[edge.target].push(edge.source)
+      })
+
+      // BFS遍历检查连通性
+      const visited = new Set()
+      const queue = [evalNodes[0].id]
+      visited.add(evalNodes[0].id)
+
+      while (queue.length > 0) {
+        const current = queue.shift()
+        const neighbors = adjacency[current] || []
+
+        neighbors.forEach(neighbor => {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor)
+            queue.push(neighbor)
+          }
+        })
+      }
+
+      // 连通节点比例
+      connectivity = visited.size / evalNodes.length
+    }
   }
 
-  // 计算冗余度
+  // 检查连通性问题
+  if (connectivity < 1 && evalNodes.length > 1) {
+    vulnerabilities.push({
+      severity: 'high',
+      title: '网络未完全连通',
+      description: `网络连通性为 ${(connectivity * 100).toFixed(1)}%，存在节点无法相互通信`
+    })
+    suggestions.push({
+      priority: 'high',
+      title: '建立网络连接',
+      description: '调整节点位置或增加中继节点，确保所有节点互联互通',
+      expected_effect: '提高网络连通性和信息传递效率'
+    })
+  }
+
+  // 计算冗余度（基于平均节点度）
   const avgDegree = evalNodes.length > 0 ? (evalEdges.length * 2) / evalNodes.length : 0
   const redundancy = Math.min(avgDegree / 4, 1)
 
-  // 计算覆盖度
+  // 检查冗余度问题
+  if (redundancy < 0.3 && evalNodes.length >= 3) {
+    vulnerabilities.push({
+      severity: 'medium',
+      title: '网络冗余度不足',
+      description: '节点连接度较低，网络抗毁性较弱'
+    })
+    suggestions.push({
+      priority: 'medium',
+      title: '增加网络冗余',
+      description: '在节点间建立更多连接，或增加备份节点',
+      expected_effect: '提高网络的抗毁性和可靠性'
+    })
+  }
+
+  // 计算覆盖度（有连接的节点比例）
   const connectedNodes = new Set()
   evalEdges.forEach(edge => {
     connectedNodes.add(edge.source)
     connectedNodes.add(edge.target)
   })
   const coverage = evalNodes.length > 0 ? connectedNodes.size / evalNodes.length : 0
+
+  // 检查孤立节点
+  if (coverage < 1 && evalNodes.length > 0) {
+    const isolatedCount = evalNodes.length - connectedNodes.size
+    vulnerabilities.push({
+      severity: 'high',
+      title: '存在孤立节点',
+      description: `发现 ${isolatedCount} 个孤立节点，它们没有与网络中其他节点建立连接`
+    })
+    suggestions.push({
+      priority: 'high',
+      title: '连接孤立节点',
+      description: '将孤立节点移动到其他节点的通信范围内，或增加中继节点建立连接',
+      expected_effect: '提高网络完整性和资源利用率'
+    })
+  }
 
   // 计算综合得分
   const overall_score = (
@@ -1743,6 +1825,42 @@ const getNodeById = (id) => {
 
 const getNodeTypeConfig = (type) => {
   return allNodeTypes.value.find(t => t.type === type) || allNodeTypes.value[0]
+}
+
+/**
+ * 获取节点的实际范围半径
+ * 优先使用装备数据中的实际范围，否则使用默认配置
+ * @param {Object} node - 节点对象
+ * @param {String} radiusType - 范围类型：'detection', 'communication', 'strike'
+ * @returns {Number} - 半径值（像素）
+ */
+const getNodeRadius = (node, radiusType) => {
+  // 如果节点有装备数据，使用装备的实际范围值
+  if (node.equipmentData) {
+    const rangeFieldMap = {
+      detection: 'detection_range',
+      communication: 'communication_range',
+      strike: 'strike_range'
+    }
+
+    const rangeField = rangeFieldMap[radiusType]
+    const rangeValue = node.equipmentData[rangeField]
+
+    // 如果装备有该范围值，使用它（1km = 1像素）
+    if (rangeValue && rangeValue > 0) {
+      return rangeValue
+    }
+  }
+
+  // 否则使用默认的节点类型配置
+  const typeConfig = getNodeTypeConfig(node.type)
+  const radiusFieldMap = {
+    detection: 'detection_radius',
+    communication: 'communication_radius',
+    strike: 'strike_radius'
+  }
+
+  return typeConfig[radiusFieldMap[radiusType]] || 0
 }
 
 const getNodeIconText = (baseType) => {
