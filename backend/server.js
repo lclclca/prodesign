@@ -10,6 +10,8 @@ const { sequelize, testConnection } = require('./config/database');
 const usersRouter = require('./routes/users');
 const equipmentRouter = require('./routes/equipment');
 const networksRouter = require('./routes/networks');
+const projectsRouter = require('./routes/projects');
+const evaluationsRouter = require('./routes/evaluations');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -37,6 +39,8 @@ app.get('/health', (req, res) => {
 app.use('/api/users', usersRouter);
 app.use('/api/equipment', equipmentRouter);
 app.use('/api/networks', networksRouter);
+app.use('/api/projects', projectsRouter);
+app.use('/api/evaluations', evaluationsRouter);
 
 // 404处理
 app.use((req, res) => {
