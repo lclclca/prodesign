@@ -6,14 +6,14 @@
  * 确保开发和测试过程中数据库的稳定性
  */
 
-const { sequelize } = require('../config/database_config');
+const { sequelize } = require('../config/database');
 const Project = require('../models/Project_model');
 const EvaluationHistory = require('../models/EvaluationHistory_model');
 const fs = require('fs');
 const path = require('path');
 
 // 数据库文件路径
-const DB_PATH = path.join(__dirname, '../../database.sqlite');
+const DB_PATH = path.join(__dirname, '../database/killchain.db');
 const BACKUP_DIR = path.join(__dirname, '../../db_backups');
 
 /**
