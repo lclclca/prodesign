@@ -90,9 +90,13 @@
 import { ref, onMounted, computed } from 'vue'
 import * as echarts from 'echarts'
 import { formatDateTime } from '@/utils/format'
+import { useEquipmentStore } from '@/store/modules/equipment'
 
 const trendChartRef = ref(null)
 const pieChartRef = ref(null)
+
+// 使用装备store
+const equipmentStore = useEquipmentStore()
 
 // 从 localStorage 获取实际数据
 const equipments = ref([])
@@ -100,12 +104,11 @@ const evaluationHistory = ref([])
 
 // 加载数据
 const loadData = () => {
-  // 加载装备数据
+  // ⭐ 从装备store加载所有装备（包括系统预置和自定义）
   try {
-    const savedEquipments = localStorage.getItem('equipments')
-    if (savedEquipments) {
-      equipments.value = JSON.parse(savedEquipments)
-    }
+    equipmentStore.restoreFromStorage()
+    equipments.value = equipmentStore.allEquipment
+    console.log('✅ Dashboard加载装备数据:', equipments.value.length)
   } catch (error) {
     console.error('加载装备数据失败:', error)
   }
@@ -136,6 +139,7 @@ const equipmentTypeDistribution = computed(() => {
     sensor: '传感器',
     command: '指挥中心',
     striker: '打击单元',
+    support: '支援保障',
     communication: '通信节点',
     platform: '平台载具'
   }
@@ -143,7 +147,8 @@ const equipmentTypeDistribution = computed(() => {
   const distribution = {}
 
   equipments.value.forEach(equipment => {
-    const typeName = typeMap[equipment.type] || equipment.type
+    // 使用baseType字段（装备管理的标准字段）
+    const typeName = typeMap[equipment.baseType] || typeMap[equipment.type] || equipment.baseType || equipment.type
     distribution[typeName] = (distribution[typeName] || 0) + 1
   })
 

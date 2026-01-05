@@ -810,6 +810,7 @@ const getDefaultPerformance = (baseType) => {
 const networkMode = ref('mixed')
 const operationMode = ref('add')
 const showGrid = ref(true) // 默认显示网格
+const showRanges = ref(true) // 默认显示节点范围圈
 
 // 所有节点类型定义
 const allNodeTypes = ref([

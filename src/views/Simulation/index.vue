@@ -414,18 +414,32 @@ const handleFileSelect = (file) => {
 // 导入网络数据
 const importNetworkData = (data) => {
   try {
-    // 转换节点数据
+    // 转换节点数据 - 完整保留所有装备属性
     const nodes = data.nodes.map(node => ({
+      // 基础信息
       id: node.id,
       name: node.label || node.name || node.id,
       type: node.baseType || node.type || 'unknown',
+      baseType: node.baseType || node.type || 'unknown',
       faction: node.faction,
+
+      // 位置和状态
       x: node.x,
       y: node.y,
-      hp: 100,
-      color: node.faction === 'red' ? '#F56C6C' : '#409EFF',
-      // 保存原始数据
-      baseType: node.baseType,
+      hp: node.hp ?? 100,
+
+      // 装备详细信息（完整保留）
+      equipmentId: node.equipmentId,
+      model: node.model || '未知型号',
+      icon: node.icon || '📍',
+      color: node.color || (node.faction === 'red' ? '#F56C6C' : '#409EFF'),
+
+      // ⭐ 关键：完整保留性能属性
+      performance: node.performance || {},
+
+      // 其他属性
+      description: node.description,
+      createdAt: node.createdAt,
       originalType: node.type
     }))
 
