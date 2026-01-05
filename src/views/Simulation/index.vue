@@ -446,16 +446,15 @@ const importNetworkData = (data) => {
     // 转换边数据
     const edges = data.edges || []
 
-    // 设置到Store
-    networkStore.setNetwork({
+    // 使用 loadNetwork 而不是 setNetwork
+    networkStore.loadNetwork({
+      version: data.version || '2.0',
+      name: data.name || '导入的网络',
+      timestamp: data.timestamp,
+      description: data.description,
+      metadata: data.metadata,
       nodes,
-      edges,
-      project: {
-        name: data.name || '导入的网络',
-        version: data.version,
-        timestamp: data.timestamp,
-        metadata: data.metadata
-      }
+      edges
     })
 
     ElMessage.success(`成功导入网络: ${nodes.length} 个节点`)

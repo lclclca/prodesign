@@ -346,64 +346,52 @@
                 @click.stop="handleNodeClick(node)"
                 @contextmenu.prevent="handleNodeRightClick(node, $event)"
               >
- <!-- 节点范围圈 - 基于实际性能参数 -->
+ <!-- 节点范围圈 - 基于实际性能参数（淡色实心圆） -->
         <g v-if="showRanges && node.performance" class="node-ranges">
-          <!-- 探测范围（传感器） -->
+          <!-- 探测范围（传感器） - 淡绿色实心圆 -->
           <circle
             v-if="node.baseType === 'sensor' && node.performance.detectionRange"
             :cx="node.x"
             :cy="node.y"
-            :r="node.performance.detectionRange / 2"
-            fill="none"
-            stroke="#4CAF50"
-            stroke-width="1.5"
-            stroke-dasharray="5,5"
-            opacity="0.4"
+            :r="node.performance.detectionRange * 1.5"
+            :fill="node.faction === 'blue' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(244, 67, 54, 0.1)'"
+            stroke="none"
           >
             <title>探测范围: {{ node.performance.detectionRange }}km</title>
           </circle>
-          
-          <!-- 指挥范围（指挥节点） -->
+
+          <!-- 指挥范围（指挥节点） - 淡蓝色实心圆 -->
           <circle
             v-if="node.baseType === 'command' && node.performance.commandRange"
             :cx="node.x"
             :cy="node.y"
-            :r="node.performance.commandRange / 2"
-            fill="none"
-            stroke="#2196F3"
-            stroke-width="1.5"
-            stroke-dasharray="5,5"
-            opacity="0.4"
+            :r="node.performance.commandRange * 1.5"
+            :fill="node.faction === 'blue' ? 'rgba(33, 150, 243, 0.1)' : 'rgba(244, 67, 54, 0.1)'"
+            stroke="none"
           >
             <title>指挥范围: {{ node.performance.commandRange }}km</title>
           </circle>
-          
-          <!-- 打击范围（打击节点） -->
+
+          <!-- 打击范围（打击节点） - 淡红色实心圆 -->
           <circle
             v-if="node.baseType === 'striker' && node.performance.strikeRange"
             :cx="node.x"
             :cy="node.y"
-            :r="node.performance.strikeRange / 2"
-            fill="none"
-            stroke="#F44336"
-            stroke-width="1.5"
-            stroke-dasharray="5,5"
-            opacity="0.4"
+            :r="node.performance.strikeRange * 1.5"
+            :fill="node.faction === 'blue' ? 'rgba(33, 150, 243, 0.15)' : 'rgba(244, 67, 54, 0.15)'"
+            stroke="none"
           >
             <title>打击范围: {{ node.performance.strikeRange }}km</title>
           </circle>
-          
-          <!-- 通信范围（支援节点） -->
+
+          <!-- 通信范围（支援节点） - 淡橙色实心圆 -->
           <circle
             v-if="node.baseType === 'support' && node.performance.commDistance"
             :cx="node.x"
             :cy="node.y"
-            :r="node.performance.commDistance / 2"
-            fill="none"
-            stroke="#FF9800"
-            stroke-width="1.5"
-            stroke-dasharray="5,5"
-            opacity="0.4"
+            :r="node.performance.commDistance * 1.5"
+            :fill="node.faction === 'blue' ? 'rgba(255, 152, 0, 0.1)' : 'rgba(244, 67, 54, 0.1)'"
+            stroke="none"
           >
             <title>通信范围: {{ node.performance.commDistance }}km</title>
           </circle>
@@ -1819,32 +1807,34 @@ const evaluateNetworkLocally = (evalNodes, evalEdges) => {
     })
   }
 
-  // 计算连通性
+  // 计算连通性（确保不超过1）
   let connectivity = 0
   if (evalNodes.length > 1) {
-    connectivity = evalEdges.length / ((evalNodes.length * (evalNodes.length - 1)) / 2)
+    const maxEdges = (evalNodes.length * (evalNodes.length - 1)) / 2
+    connectivity = Math.min(evalEdges.length / maxEdges, 1.0)
   }
 
-  // 计算冗余度
+  // 计算冗余度（确保不超过1）
   const avgDegree = evalNodes.length > 0 ? (evalEdges.length * 2) / evalNodes.length : 0
-  const redundancy = Math.min(avgDegree / 4, 1)
+  const redundancy = Math.min(avgDegree / 4, 1.0)
 
-  // 计算覆盖度
+  // 计算覆盖度（确保不超过1）
   const connectedNodes = new Set()
   evalEdges.forEach(edge => {
     connectedNodes.add(edge.source)
     connectedNodes.add(edge.target)
   })
-  const coverage = evalNodes.length > 0 ? connectedNodes.size / evalNodes.length : 0
+  const coverage = evalNodes.length > 0 ? Math.min(connectedNodes.size / evalNodes.length, 1.0) : 0
 
-  // 计算综合得分
-  const overall_score = (
+  // 计算综合得分（强制限制在100以内）
+  const overall_score = Math.min(
     (hasSensor ? 20 : 0) +
     (hasCommand ? 20 : 0) +
     (hasStriker ? 20 : 0) +
     connectivity * 15 +
     redundancy * 15 +
-    coverage * 10
+    coverage * 10,
+    100  // 确保不超过100分
   )
 
   return {
