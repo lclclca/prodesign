@@ -6,7 +6,7 @@
     
     <!-- 统计卡片 -->
     <el-row :gutter="20" class="stat-cards">
-      <el-col :span="6">
+      <el-col :span="8">
         <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
           <div class="stat-icon">
             <el-icon :size="40"><Box /></el-icon>
@@ -17,8 +17,8 @@
           </div>
         </div>
       </el-col>
-      
-      <el-col :span="6">
+
+      <el-col :span="8">
         <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
           <div class="stat-icon">
             <el-icon :size="40"><Map /></el-icon>
@@ -29,20 +29,8 @@
           </div>
         </div>
       </el-col>
-      
-      <el-col :span="6">
-        <div class="stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
-          <div class="stat-icon">
-            <el-icon :size="40"><Share /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ stats.projectCount }}</div>
-            <div class="stat-label">作战网络</div>
-          </div>
-        </div>
-      </el-col>
-      
-      <el-col :span="6">
+
+      <el-col :span="8">
         <div class="stat-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
           <div class="stat-icon">
             <el-icon :size="40"><TrendCharts /></el-icon>
@@ -109,7 +97,6 @@ const pieChartRef = ref(null)
 const stats = ref({
   equipmentCount: 126,
   scenarioCount: 45,
-  projectCount: 32,
   assessmentCount: 89
 })
 

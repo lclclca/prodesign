@@ -39,13 +39,6 @@ const routes = [
         meta: { title: '网络构建' }
       },
 
-      // 项目管理
-      {
-        path: 'projects',
-        name: 'Projects',
-        component: () => import('@/views/Projects.vue'),
-        meta: { title: '项目管理' }
-      },
       {
         path: 'simulation',  // ⚠️ 不要用 '/simulation'，用相对路径
         name: 'Simulation',

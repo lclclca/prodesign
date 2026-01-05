@@ -29,11 +29,6 @@
           <span>网络构建</span>
         </el-menu-item>
 
-        <el-menu-item index="/projects">
-          <el-icon><FolderOpened /></el-icon>
-          <span>项目管理</span>
-        </el-menu-item>
-
         <el-menu-item index="/simulation">
           <el-icon><VideoPlay /></el-icon>
           <span>仿真推演</span>
@@ -122,11 +117,10 @@ import {
   DataBoard,
   Box,
   Share,
-  FolderOpened,
+  VideoPlay,
   // 以下图标如果需要其他菜单项，可以取消注释
   // Map,
   // TrendCharts,
-  // VideoPlay,
   // Document,
   // Setting,
   UserFilled,
