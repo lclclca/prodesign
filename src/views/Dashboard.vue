@@ -87,81 +87,191 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import * as echarts from 'echarts'
 import { formatDateTime } from '@/utils/format'
 
 const trendChartRef = ref(null)
 const pieChartRef = ref(null)
 
-const stats = ref({
-  equipmentCount: 126,
-  scenarioCount: 45,
-  assessmentCount: 89
+// 从 localStorage 获取实际数据
+const equipments = ref([])
+const evaluationHistory = ref([])
+
+// 加载数据
+const loadData = () => {
+  // 加载装备数据
+  try {
+    const savedEquipments = localStorage.getItem('equipments')
+    if (savedEquipments) {
+      equipments.value = JSON.parse(savedEquipments)
+    }
+  } catch (error) {
+    console.error('加载装备数据失败:', error)
+  }
+
+  // 加载评估历史（如果存在）
+  try {
+    const savedEvaluations = localStorage.getItem('evaluationHistory')
+    if (savedEvaluations) {
+      evaluationHistory.value = JSON.parse(savedEvaluations)
+    }
+  } catch (error) {
+    console.error('加载评估历史失败:', error)
+  }
+}
+
+// 计算统计数据
+const stats = computed(() => {
+  return {
+    equipmentCount: equipments.value.length || 0,
+    scenarioCount: 0, // 暂时没有想定数据源
+    assessmentCount: evaluationHistory.value.length || 0
+  }
 })
 
-const recentActivities = ref([
-  {
-    time: formatDateTime(new Date()),
-    user: '张三',
-    action: '创建想定',
-    target: '防空作战想定 v1.0',
-    status: 'success'
-  },
-  {
-    time: formatDateTime(new Date(Date.now() - 3600000)),
-    user: '李四',
-    action: '运行评估',
-    target: '项目-001 综合效能评估',
-    status: 'success'
-  },
-  {
-    time: formatDateTime(new Date(Date.now() - 7200000)),
-    user: '王五',
-    action: '编辑网络',
-    target: '作战网络-A',
-    status: 'success'
+// 计算装备类型分布
+const equipmentTypeDistribution = computed(() => {
+  const typeMap = {
+    sensor: '传感器',
+    command: '指挥中心',
+    striker: '打击单元',
+    communication: '通信节点',
+    platform: '平台载具'
   }
-])
+
+  const distribution = {}
+
+  equipments.value.forEach(equipment => {
+    const typeName = typeMap[equipment.type] || equipment.type
+    distribution[typeName] = (distribution[typeName] || 0) + 1
+  })
+
+  return Object.entries(distribution).map(([name, value]) => ({
+    name,
+    value
+  }))
+})
+
+// 生成最近活动（从实际数据生成）
+const recentActivities = computed(() => {
+  const activities = []
+
+  // 从评估历史生成活动
+  evaluationHistory.value.slice(0, 5).forEach(evaluation => {
+    activities.push({
+      time: formatDateTime(new Date(evaluation.timestamp)),
+      user: '系统用户',
+      action: '运行评估',
+      target: evaluation.projectName || '网络评估',
+      status: 'success'
+    })
+  })
+
+  // 如果没有实际活动，返回占位数据
+  if (activities.length === 0) {
+    return [
+      {
+        time: formatDateTime(new Date()),
+        user: '系统',
+        action: '系统启动',
+        target: '暂无活动记录',
+        status: 'success'
+      }
+    ]
+  }
+
+  // 按时间排序，取最新的5条
+  return activities
+    .sort((a, b) => new Date(b.time) - new Date(a.time))
+    .slice(0, 5)
+})
 
 onMounted(() => {
+  loadData()
   initTrendChart()
   initPieChart()
 })
 
 const initTrendChart = () => {
   const chart = echarts.init(trendChartRef.value)
+
+  // 根据评估历史生成趋势数据
+  const generateTrendData = () => {
+    if (evaluationHistory.value.length === 0) {
+      // 没有数据时返回占位数据
+      return {
+        dates: ['暂无数据'],
+        scores: [0]
+      }
+    }
+
+    // 按月份分组统计
+    const monthlyData = {}
+
+    evaluationHistory.value.forEach(evaluation => {
+      const date = new Date(evaluation.timestamp)
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = {
+          count: 0,
+          totalScore: 0
+        }
+      }
+
+      monthlyData[monthKey].count++
+      monthlyData[monthKey].totalScore += evaluation.overall_score || 0
+    })
+
+    // 转换为图表数据（最近6个月）
+    const sortedMonths = Object.keys(monthlyData).sort().slice(-6)
+    const dates = sortedMonths.map(key => {
+      const [year, month] = key.split('-')
+      return `${month}月`
+    })
+
+    const counts = sortedMonths.map(key => monthlyData[key].count)
+    const avgScores = sortedMonths.map(key =>
+      Math.round(monthlyData[key].totalScore / monthlyData[key].count)
+    )
+
+    return { dates, counts, avgScores }
+  }
+
+  const { dates, counts, avgScores } = generateTrendData()
+
   const option = {
     tooltip: {
       trigger: 'axis'
     },
     legend: {
-      data: ['评估任务', '完成任务']
+      data: ['评估次数', '平均得分']
     },
     xAxis: {
       type: 'category',
-      data: ['1月', '2月', '3月', '4月', '5月', '6月']
+      data: dates
     },
     yAxis: {
       type: 'value'
     },
     series: [
       {
-        name: '评估任务',
+        name: '评估次数',
         type: 'line',
-        data: [12, 15, 10, 18, 20, 16],
+        data: counts || [0],
         smooth: true
       },
       {
-        name: '完成任务',
+        name: '平均得分',
         type: 'line',
-        data: [10, 14, 9, 16, 18, 15],
+        data: avgScores || [0],
         smooth: true
       }
     ]
   }
   chart.setOption(option)
-  
+
   window.addEventListener('resize', () => {
     chart.resize()
   })
@@ -169,9 +279,16 @@ const initTrendChart = () => {
 
 const initPieChart = () => {
   const chart = echarts.init(pieChartRef.value)
+
+  // 使用实际的装备类型分布数据
+  const pieData = equipmentTypeDistribution.value.length > 0
+    ? equipmentTypeDistribution.value
+    : [{ value: 0, name: '暂无数据' }]
+
   const option = {
     tooltip: {
-      trigger: 'item'
+      trigger: 'item',
+      formatter: '{a} <br/>{b}: {c} ({d}%)'
     },
     legend: {
       orient: 'vertical',
@@ -183,24 +300,22 @@ const initPieChart = () => {
         name: '装备类型',
         type: 'pie',
         radius: '50%',
-        data: [
-          { value: 35, name: '传感器' },
-          { value: 28, name: '决策' },
-          { value: 42, name: '影响器' },
-          { value: 21, name: '支援保障' }
-        ],
+        data: pieData,
         emphasis: {
           itemStyle: {
             shadowBlur: 10,
             shadowOffsetX: 0,
             shadowColor: 'rgba(0, 0, 0, 0.5)'
           }
+        },
+        label: {
+          formatter: '{b}: {c}'
         }
       }
     ]
   }
   chart.setOption(option)
-  
+
   window.addEventListener('resize', () => {
     chart.resize()
   })
