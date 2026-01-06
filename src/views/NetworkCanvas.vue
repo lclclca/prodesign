@@ -346,60 +346,61 @@
                 @click.stop="handleNodeClick(node)"
                 @contextmenu.prevent="handleNodeRightClick(node, $event)"
               >
- <!-- 节点范围圈 - 基于实际性能参数（淡色实心圆） -->
-        <g v-if="showRanges && node.performance" class="node-ranges">
-          <!-- 探测范围（传感器） - 淡绿色实心圆 -->
-          <circle
-            v-if="node.baseType === 'sensor' && node.performance.detectionRange"
-            :cx="node.x"
-            :cy="node.y"
-            :r="node.performance.detectionRange * 1.5"
-            :fill="node.faction === 'blue' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(244, 67, 54, 0.1)'"
-            stroke="none"
-          >
-            <title>探测范围: {{ node.performance.detectionRange }}km</title>
-          </circle>
+                <!-- ⭐ 节点范围圈（使用相对坐标，因为g已经transform了） -->
+                <g v-if="showRanges && node.performance" class="node-ranges">
+                  <!-- 探测范围（传感器） -->
+                  <circle
+                    v-if="node.baseType === 'sensor' && node.performance.detectionRange"
+                    cx="0"
+                    cy="0"
+                    :r="node.performance.detectionRange / 2"
+                    :fill="node.faction === 'blue' ? 'rgba(76, 175, 80, 0.15)' : 'rgba(244, 67, 54, 0.15)'"
+                    stroke="none"
+                  >
+                    <title>探测范围: {{ node.performance.detectionRange }}km</title>
+                  </circle>
 
-          <!-- 指挥范围（指挥节点） - 淡蓝色实心圆 -->
-          <circle
-            v-if="node.baseType === 'command' && node.performance.commandRange"
-            :cx="node.x"
-            :cy="node.y"
-            :r="node.performance.commandRange * 1.5"
-            :fill="node.faction === 'blue' ? 'rgba(33, 150, 243, 0.1)' : 'rgba(244, 67, 54, 0.1)'"
-            stroke="none"
-          >
-            <title>指挥范围: {{ node.performance.commandRange }}km</title>
-          </circle>
+                  <!-- 指挥范围（指挥节点） -->
+                  <circle
+                    v-if="node.baseType === 'command' && node.performance.commandRange"
+                    cx="0"
+                    cy="0"
+                    :r="node.performance.commandRange / 2"
+                    :fill="node.faction === 'blue' ? 'rgba(33, 150, 243, 0.15)' : 'rgba(244, 67, 54, 0.15)'"
+                    stroke="none"
+                  >
+                    <title>指挥范围: {{ node.performance.commandRange }}km</title>
+                  </circle>
 
-          <!-- 打击范围（打击节点） - 淡红色实心圆 -->
-          <circle
-            v-if="node.baseType === 'striker' && node.performance.strikeRange"
-            :cx="node.x"
-            :cy="node.y"
-            :r="node.performance.strikeRange * 1.5"
-            :fill="node.faction === 'blue' ? 'rgba(33, 150, 243, 0.15)' : 'rgba(244, 67, 54, 0.15)'"
-            stroke="none"
-          >
-            <title>打击范围: {{ node.performance.strikeRange }}km</title>
-          </circle>
+                  <!-- 打击范围（打击节点） -->
+                  <circle
+                    v-if="node.baseType === 'striker' && node.performance.strikeRange"
+                    cx="0"
+                    cy="0"
+                    :r="node.performance.strikeRange / 2"
+                    :fill="node.faction === 'blue' ? 'rgba(33, 150, 243, 0.2)' : 'rgba(244, 67, 54, 0.2)'"
+                    stroke="none"
+                  >
+                    <title>打击范围: {{ node.performance.strikeRange }}km</title>
+                  </circle>
 
-          <!-- 通信范围（支援节点） - 淡橙色实心圆 -->
-          <circle
-            v-if="node.baseType === 'support' && node.performance.commDistance"
-            :cx="node.x"
-            :cy="node.y"
-            :r="node.performance.commDistance * 1.5"
-            :fill="node.faction === 'blue' ? 'rgba(255, 152, 0, 0.1)' : 'rgba(244, 67, 54, 0.1)'"
-            stroke="none"
-          >
-            <title>通信范围: {{ node.performance.commDistance }}km</title>
-          </circle>
-        </g>
+                  <!-- 通信范围（支援节点） -->
+                  <circle
+                    v-if="node.baseType === 'support' && node.performance.commDistance"
+                    cx="0"
+                    cy="0"
+                    :r="node.performance.commDistance / 2"
+                    :fill="node.faction === 'blue' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(244, 67, 54, 0.15)'"
+                    stroke="none"
+                  >
+                    <title>通信范围: {{ node.performance.commDistance }}km</title>
+                  </circle>
+                </g>
 
-
-                <!-- 节点主体 -->
+                <!-- ⭐ 节点主体（在范围圈上方） -->
                 <circle
+                  cx="0"
+                  cy="0"
                   r="20"
                   :fill="getNodeTypeConfig(node.type).color"
                   stroke="#fff"
