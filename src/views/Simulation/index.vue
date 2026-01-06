@@ -227,7 +227,24 @@
 
               <!-- 杀伤链搜索 -->
               <div class="control-section">
-                <div class="section-title">杀伤链搜索</div>
+                <div class="section-title">打击控制</div>
+
+                <!-- 快速攻击提示 -->
+                <el-alert
+                  type="success"
+                  :closable="false"
+                  style="margin-bottom: 12px"
+                >
+                  <template #default>
+                    <div style="font-size: 12px; line-height: 1.6">
+                      <strong>快速攻击：</strong>直接左键点击敌方节点即可自动搜索并执行最优打击方案
+                    </div>
+                  </template>
+                </el-alert>
+
+                <!-- 手动选择目标 -->
+                <el-divider style="margin: 8px 0">或手动选择目标</el-divider>
+
                 <el-select
                   v-model="targetNodeId"
                   placeholder="选择敌方目标"
@@ -252,7 +269,7 @@
                 >
                   🔍 搜索杀伤链
                 </el-button>
-                
+
                 <!-- 搜索结果提示 -->
                 <div v-if="killChains.length > 0" style="margin-top: 10px">
                   <el-alert
@@ -370,8 +387,8 @@
               ></canvas>
               <div class="canvas-tips">
                 <el-text size="small" type="info">
-                  💡 提示: 鼠标滚轮缩放 | 右键拖拽画布 | 左键选择节点
-                  <span v-if="movementEnabled"> | 左键拖拽节点移动 | 选中后右键设置目标</span>
+                  💡 提示: 鼠标滚轮缩放 | 右键拖拽画布 | <span style="color: #F56C6C; font-weight: bold;">左键点击敌方节点直接攻击</span>
+                  <span v-if="movementEnabled"> | 左键拖拽我方节点移动</span>
                 </el-text>
               </div>
             </div>
@@ -1427,6 +1444,25 @@ const handleMouseDown = (e) => {
 
   // 左键：选中节点或开始拖拽节点
   if (e.button === 0) {
+    // 先检查是否点击在敌方节点上
+    let clickedEnemyNode = null
+    redNodes.value.forEach(node => {
+      const dist = Math.sqrt((worldPos.x - node.x) ** 2 + (worldPos.y - node.y) ** 2)
+      if (dist < 28 && node.hp > 0) {
+        clickedEnemyNode = node
+      }
+    })
+
+    // 如果点击了敌方节点，自动搜索杀伤链并执行打击
+    if (clickedEnemyNode) {
+      targetNodeId.value = clickedEnemyNode.id
+      addLog(`选中敌方目标: ${clickedEnemyNode.name}`, 'danger')
+
+      // 自动搜索杀伤链
+      searchAndAttack(clickedEnemyNode.id)
+      return
+    }
+
     // 检查是否点击在我方节点上
     let clickedNode = null
     blueNodes.value.forEach(node => {
@@ -1506,16 +1542,79 @@ const handleMouseUp = () => {
   }
 }
 
+// 快速搜索并攻击（点击敌方节点时调用）
+const searchAndAttack = async (targetId) => {
+  if (!targetId) return
+
+  searching.value = true
+
+  try {
+    const targetNode = redNodes.value.find(n => n.id === targetId)
+    if (!targetNode || targetNode.hp <= 0) {
+      ElMessage.warning('目标已被摧毁')
+      return
+    }
+
+    addLog(`━━━━ 搜索对 ${targetNode.name} 的打击方案 ━━━━`, 'info')
+
+    // 创建搜索引擎
+    const searchEngine = new KillChainSearchEngine(
+      displayNodes.value,
+      networkStore.edges
+    )
+
+    // 执行搜索
+    const result = searchEngine.searchKillChains(targetId)
+
+    if (result.success && result.killChains.length > 0) {
+      killChains.value = result.killChains
+
+      // 自动选择最优杀伤链（效能最高的）
+      const bestChain = result.killChains[0]
+      selectedChainId.value = bestChain.id
+
+      addLog(`✓ 找到 ${result.killChains.length} 条杀伤链`, 'success')
+      addLog(`自动选择最优杀伤链: ${bestChain.nodeDetails.map(n => n.name).join(' → ')}`, 'info')
+      addLog(`效能: ${(bestChain.effectiveness * 100).toFixed(1)}%`, 'info')
+
+      // 重绘画布（高亮显示杀伤链）
+      showChainList.value = true
+      drawBattlefield()
+
+      // 延迟500ms后自动执行打击
+      setTimeout(() => {
+        executeStrike()
+      }, 500)
+    } else {
+      killChains.value = []
+      selectedChainId.value = null
+      addLog(`✗ 未找到可用杀伤链`, 'warning')
+
+      if (result.reason) {
+        addLog(`原因: ${result.reason}`, 'warning')
+      }
+
+      ElMessage.warning('未找到可用的打击方案')
+    }
+
+  } catch (error) {
+    console.error('搜索错误:', error)
+    ElMessage.error('搜索过程出错: ' + error.message)
+  } finally {
+    searching.value = false
+  }
+}
+
 // 搜索杀伤链
 const searchKillChains = async () => {
   if (!targetNodeId.value) {
     ElMessage.warning('请先选择敌方目标')
     return
   }
-  
+
   searching.value = true
   showChainList.value = true
-  
+
   try {
     addLog(`━━━━ 开始搜索杀伤链 ━━━━`, 'info')
     const targetNode = redNodes.value.find(n => n.id === targetNodeId.value)
