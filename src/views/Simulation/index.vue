@@ -650,12 +650,22 @@ const animationLoop = (timestamp) => {
   const deltaTime = lastFrameTime ? (timestamp - lastFrameTime) / 1000 : 0
   lastFrameTime = timestamp
 
+  // ⭐ 检查是否有节点在移动
+  let hasMovement = false
+
   // 更新所有启用移动的节点
   displayNodes.value.forEach(node => {
     if (node.movement && node.movement.enabled) {
       updateNodePosition(node, deltaTime)
+      hasMovement = true
     }
   })
+
+  // ⭐ 如果有节点移动，清除杀伤链高亮（避免高亮圈停留在原地）
+  if (hasMovement && selectedChainId.value) {
+    selectedChainId.value = null
+    killChains.value = []
+  }
 
   // 重绘画布
   drawBattlefield()
@@ -714,36 +724,55 @@ const toggleMovementSystem = () => {
 
 // ==================== 战术指令 ====================
 
-// 自动巡逻（仅打击单元）
+// 自动巡逻（传感器和打击单元围绕指挥中心）
 const autoPatrol = () => {
   if (!battleCanvas.value) return
 
-  const canvas = battleCanvas.value
-  const worldWidth = canvas.width / scale.value
-  const worldHeight = canvas.height / scale.value
-
-  // 只让打击单元巡逻
-  const strikers = blueNodes.value.filter(n => n.baseType === 'striker' && n.hp > 0)
-
-  if (strikers.length === 0) {
-    ElMessage.warning('没有可用的打击单元')
+  // 查找指挥中心
+  const commandCenter = blueNodes.value.find(n => n.baseType === 'command' && n.hp > 0)
+  if (!commandCenter) {
+    ElMessage.warning('没有指挥中心，无法执行巡逻指令')
     return
   }
 
-  strikers.forEach((node, idx) => {
+  // 获取传感器和打击单元（排除指挥中心）
+  const mobileUnits = blueNodes.value.filter(n =>
+    (n.baseType === 'sensor' || n.baseType === 'striker') && n.hp > 0
+  )
+
+  if (mobileUnits.length === 0) {
+    ElMessage.warning('没有可移动的单元')
+    return
+  }
+
+  const centerX = commandCenter.x
+  const centerY = commandCenter.y
+  const patrolRadius = 150  // 巡逻半径
+
+  mobileUnits.forEach((node, idx) => {
     initNodeMovement(node)
 
-    // 创建巡逻路径（矩形巡逻）
-    const patrolWidth = 200
-    const patrolHeight = 200
-    const startX = worldWidth * 0.2
-    const startY = 100 + idx * 150
+    // 计算起始角度（均匀分布）
+    const startAngle = (idx / mobileUnits.length) * Math.PI * 2
 
+    // 创建环形巡逻路径（4个点）
     node.movement.path = [
-      { x: startX, y: startY },
-      { x: startX + patrolWidth, y: startY },
-      { x: startX + patrolWidth, y: startY + patrolHeight },
-      { x: startX, y: startY + patrolHeight }
+      {
+        x: centerX + Math.cos(startAngle) * patrolRadius,
+        y: centerY + Math.sin(startAngle) * patrolRadius
+      },
+      {
+        x: centerX + Math.cos(startAngle + Math.PI / 2) * patrolRadius,
+        y: centerY + Math.sin(startAngle + Math.PI / 2) * patrolRadius
+      },
+      {
+        x: centerX + Math.cos(startAngle + Math.PI) * patrolRadius,
+        y: centerY + Math.sin(startAngle + Math.PI) * patrolRadius
+      },
+      {
+        x: centerX + Math.cos(startAngle + Math.PI * 1.5) * patrolRadius,
+        y: centerY + Math.sin(startAngle + Math.PI * 1.5) * patrolRadius
+      }
     ]
 
     node.movement.currentPathIndex = 0
@@ -753,45 +782,72 @@ const autoPatrol = () => {
     node.movement.enabled = true
   })
 
-  addLog('打击单元开始巡逻', 'info')
-  ElMessage.success(`${strikers.length} 个打击单元开始巡逻`)
+  addLog(`${mobileUnits.length} 个单位围绕指挥中心巡逻`, 'info')
+  ElMessage.success(`${mobileUnits.length} 个单位开始巡逻`)
 }
 
-// 防御阵型（仅打击单元）
+// 防御阵型（传感器和打击单元围绕指挥中心小范围布阵）
 const formDefensiveLine = () => {
   if (!battleCanvas.value) return
 
-  const canvas = battleCanvas.value
-  const worldWidth = canvas.width / scale.value
-  const worldHeight = canvas.height / scale.value
-
-  const defensiveX = worldWidth * 0.3
-  const startY = 100
-  const spacing = 120
-
-  // 只让打击单元移动
-  const strikers = blueNodes.value.filter(n => n.baseType === 'striker' && n.hp > 0)
-
-  if (strikers.length === 0) {
-    ElMessage.warning('没有可用的打击单元')
+  // 查找指挥中心
+  const commandCenter = blueNodes.value.find(n => n.baseType === 'command' && n.hp > 0)
+  if (!commandCenter) {
+    ElMessage.warning('没有指挥中心，无法执行防御指令')
     return
   }
 
-  strikers.forEach((node, idx) => {
+  // 获取传感器和打击单元（排除指挥中心）
+  const mobileUnits = blueNodes.value.filter(n =>
+    (n.baseType === 'sensor' || n.baseType === 'striker') && n.hp > 0
+  )
+
+  if (mobileUnits.length === 0) {
+    ElMessage.warning('没有可移动的单元')
+    return
+  }
+
+  const centerX = commandCenter.x
+  const centerY = commandCenter.y
+
+  // 防御阵型：紧密围绕指挥中心
+  // 传感器在外圈，打击单元在内圈
+  const sensors = mobileUnits.filter(n => n.baseType === 'sensor')
+  const strikers = mobileUnits.filter(n => n.baseType === 'striker')
+
+  // 传感器外圈半径
+  const sensorRadius = 100
+
+  sensors.forEach((node, idx) => {
     initNodeMovement(node)
 
-    node.movement.targetX = defensiveX
-    node.movement.targetY = startY + idx * spacing
+    const angle = (idx / sensors.length) * Math.PI * 2
+    node.movement.targetX = centerX + Math.cos(angle) * sensorRadius
+    node.movement.targetY = centerY + Math.sin(angle) * sensorRadius
     node.movement.mode = 'defensive'
     node.movement.enabled = true
     node.movement.path = []
   })
 
-  addLog('打击单元进入防御阵型', 'info')
-  ElMessage.success(`${strikers.length} 个打击单元进入防御阵型`)
+  // 打击单元内圈半径
+  const strikerRadius = 60
+
+  strikers.forEach((node, idx) => {
+    initNodeMovement(node)
+
+    const angle = (idx / strikers.length) * Math.PI * 2 + Math.PI / strikers.length  // 错开排列
+    node.movement.targetX = centerX + Math.cos(angle) * strikerRadius
+    node.movement.targetY = centerY + Math.sin(angle) * strikerRadius
+    node.movement.mode = 'defensive'
+    node.movement.enabled = true
+    node.movement.path = []
+  })
+
+  addLog(`${mobileUnits.length} 个单位围绕指挥中心防御`, 'info')
+  ElMessage.success(`${mobileUnits.length} 个单位进入防御阵型`)
 }
 
-// 进攻阵型（仅打击单元）
+// 进攻阵型（传感器和打击单元以指挥中心为圆心向敌方扇形推进）
 const attackFormation = () => {
   if (!battleCanvas.value) return
   if (redNodes.value.length === 0) {
@@ -799,15 +855,22 @@ const attackFormation = () => {
     return
   }
 
+  // 查找指挥中心
+  const commandCenter = blueNodes.value.find(n => n.baseType === 'command' && n.hp > 0)
+  if (!commandCenter) {
+    ElMessage.warning('没有指挥中心，无法执行进攻指令')
+    return
+  }
+
   // 计算敌方中心位置
-  let centerX = 0
-  let centerY = 0
+  let enemyCenterX = 0
+  let enemyCenterY = 0
   let count = 0
 
   redNodes.value.forEach(node => {
     if (node.hp > 0) {
-      centerX += node.x
-      centerY += node.y
+      enemyCenterX += node.x
+      enemyCenterY += node.y
       count++
     }
   })
@@ -817,39 +880,59 @@ const attackFormation = () => {
     return
   }
 
-  centerX /= count
-  centerY /= count
+  enemyCenterX /= count
+  enemyCenterY /= count
 
-  // 只让打击单元移动
-  const strikers = blueNodes.value.filter(n => n.baseType === 'striker' && n.hp > 0)
+  // 获取传感器和打击单元（排除指挥中心）
+  const mobileUnits = blueNodes.value.filter(n =>
+    (n.baseType === 'sensor' || n.baseType === 'striker') && n.hp > 0
+  )
 
-  if (strikers.length === 0) {
-    ElMessage.warning('没有可用的打击单元')
+  if (mobileUnits.length === 0) {
+    ElMessage.warning('没有可移动的单元')
     return
   }
 
-  // 打击单元向敌方中心靠近，保持扇形阵型
-  strikers.forEach((node, idx) => {
+  const sensors = mobileUnits.filter(n => n.baseType === 'sensor')
+  const strikers = mobileUnits.filter(n => n.baseType === 'striker')
+
+  // 计算从指挥中心到敌方中心的方向
+  const dx = enemyCenterX - commandCenter.x
+  const dy = enemyCenterY - commandCenter.y
+  const baseAngle = Math.atan2(dy, dx)
+
+  // 传感器在前方较远处，扇形展开
+  const sensorDistance = 180  // 传感器前移距离
+  const sensorSpread = Math.PI / 2  // 90度扇形
+
+  sensors.forEach((node, idx) => {
     initNodeMovement(node)
 
-    // 计算扇形位置
-    const angleSpread = Math.PI / 3  // 60度扇形
-    const angle = -angleSpread / 2 + (idx / Math.max(1, strikers.length - 1)) * angleSpread
-    const distance = 150  // 距离敌方中心150单位
-
-    const dx = centerX - node.x
-    const dy = centerY - node.y
-    const baseAngle = Math.atan2(dy, dx)
-
-    node.movement.targetX = centerX - Math.cos(baseAngle + angle) * distance
-    node.movement.targetY = centerY - Math.sin(baseAngle + angle) * distance
+    const angle = baseAngle + (-sensorSpread / 2 + (idx / Math.max(1, sensors.length - 1)) * sensorSpread)
+    node.movement.targetX = commandCenter.x + Math.cos(angle) * sensorDistance
+    node.movement.targetY = commandCenter.y + Math.sin(angle) * sensorDistance
     node.movement.mode = 'attack'
     node.movement.enabled = true
     node.movement.path = []
   })
 
-  addLog('打击单元进入进攻阵型', 'danger')
-  ElMessage.success(`${strikers.length} 个打击单元进入进攻阵型`)
+  // 打击单元在中间距离，扇形展开
+  const strikerDistance = 130  // 打击单元距离
+  const strikerSpread = Math.PI / 3  // 60度扇形
+
+  strikers.forEach((node, idx) => {
+    initNodeMovement(node)
+
+    const angle = baseAngle + (-strikerSpread / 2 + (idx / Math.max(1, strikers.length - 1)) * strikerSpread)
+    node.movement.targetX = commandCenter.x + Math.cos(angle) * strikerDistance
+    node.movement.targetY = commandCenter.y + Math.sin(angle) * strikerDistance
+    node.movement.mode = 'attack'
+    node.movement.enabled = true
+    node.movement.path = []
+  })
+
+  addLog(`${mobileUnits.length} 个单位以指挥中心为圆心进攻`, 'danger')
+  ElMessage.success(`${mobileUnits.length} 个单位进入进攻阵型`)
 }
 
 // ==================== 文件操作 ====================
