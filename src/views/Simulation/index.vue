@@ -194,7 +194,8 @@
                     <div style="font-size: 11px; line-height: 1.5">
                       <div>• 左键拖拽节点直接移动</div>
                       <div>• 选中节点后右键设置目标</div>
-                      <div>• 打击敌方会触发战术响应</div>
+                      <div>• 战术指令仅对打击单元生效</div>
+                      <div>• 打击后打击单元会向目标移动</div>
                     </div>
                   </template>
                 </el-alert>
@@ -574,66 +575,26 @@ const updateNodePosition = (node, deltaTime) => {
   networkStore.updateNode(node.id, { x: node.x, y: node.y })
 }
 
-// 事件驱动的战术移动
+// 事件驱动的战术移动（简化版）
 const handleCombatEvent = (eventType, node, params = {}) => {
   switch (eventType) {
-    case 'attacked':
-      // 受到攻击 → 撤退
-      if (params.attacker) {
-        const dx = node.x - params.attacker.x
-        const dy = node.y - params.attacker.y
+    case 'strikeTarget':
+      // 只有打击单元执行打击后向目标移动
+      if (node.baseType === 'striker' && params.target) {
+        const dx = params.target.x - node.x
+        const dy = params.target.y - node.y
         const distance = Math.sqrt(dx * dx + dy * dy)
 
-        if (distance > 0) {
-          // 向后撤退
-          const retreatDistance = 150
-          node.movement.targetX = node.x + (dx / distance) * retreatDistance
-          node.movement.targetY = node.y + (dy / distance) * retreatDistance
-          node.movement.mode = 'retreat'
-          node.movement.enabled = true
-
-          addLog(`${node.name} 正在撤退`, 'warning')
-        }
-      }
-      break
-
-    case 'enemyDetected':
-      // 发现敌方 → 根据类型响应
-      if (params.enemy) {
-        if (node.baseType === 'striker') {
-          // 打击单元接近目标
-          node.movement.targetX = params.enemy.x
-          node.movement.targetY = params.enemy.y
+        if (distance > 100) {  // 如果距离大于100，向目标移动
+          // 向目标靠近（保持一定距离）
+          const approachDistance = 80  // 靠近到距离目标80单位
+          node.movement.targetX = params.target.x - (dx / distance) * approachDistance
+          node.movement.targetY = params.target.y - (dy / distance) * approachDistance
           node.movement.mode = 'attack'
           node.movement.enabled = true
 
-          addLog(`${node.name} 正在接近目标 ${params.enemy.name}`, 'info')
-        } else if (node.baseType === 'sensor') {
-          // 传感器保持安全距离侦察
-          const safeDistance = 150
-          const angle = Math.atan2(params.enemy.y - node.y, params.enemy.x - node.x)
-          node.movement.targetX = params.enemy.x - Math.cos(angle) * safeDistance
-          node.movement.targetY = params.enemy.y - Math.sin(angle) * safeDistance
-          node.movement.mode = 'recon'
-          node.movement.enabled = true
-
-          addLog(`${node.name} 正在侦察 ${params.enemy.name}`, 'info')
+          addLog(`${node.name} 正在向目标移动`, 'info')
         }
-      }
-      break
-
-    case 'communicationLost':
-      // 通信中断 → 移动以恢复通信
-      const nearestFriendly = findNearestFriendly(node)
-      if (nearestFriendly) {
-        const dx = nearestFriendly.x - node.x
-        const dy = nearestFriendly.y - node.y
-        node.movement.targetX = node.x + dx * 0.5
-        node.movement.targetY = node.y + dy * 0.5
-        node.movement.mode = 'relink'
-        node.movement.enabled = true
-
-        addLog(`${node.name} 正在恢复通信`, 'warning')
       }
       break
   }
@@ -736,7 +697,7 @@ const toggleMovementSystem = () => {
 
 // ==================== 战术指令 ====================
 
-// 自动巡逻
+// 自动巡逻（仅打击单元）
 const autoPatrol = () => {
   if (!battleCanvas.value) return
 
@@ -744,9 +705,15 @@ const autoPatrol = () => {
   const worldWidth = canvas.width / scale.value
   const worldHeight = canvas.height / scale.value
 
-  blueNodes.value.forEach((node, idx) => {
-    if (node.hp <= 0) return
+  // 只让打击单元巡逻
+  const strikers = blueNodes.value.filter(n => n.baseType === 'striker' && n.hp > 0)
 
+  if (strikers.length === 0) {
+    ElMessage.warning('没有可用的打击单元')
+    return
+  }
+
+  strikers.forEach((node, idx) => {
     initNodeMovement(node)
 
     // 创建巡逻路径（矩形巡逻）
@@ -769,11 +736,11 @@ const autoPatrol = () => {
     node.movement.enabled = true
   })
 
-  addLog('我方单位开始巡逻', 'info')
-  ElMessage.success('巡逻指令已下达')
+  addLog('打击单元开始巡逻', 'info')
+  ElMessage.success(`${strikers.length} 个打击单元开始巡逻`)
 }
 
-// 防御阵型
+// 防御阵型（仅打击单元）
 const formDefensiveLine = () => {
   if (!battleCanvas.value) return
 
@@ -785,9 +752,15 @@ const formDefensiveLine = () => {
   const startY = 100
   const spacing = 120
 
-  blueNodes.value.forEach((node, idx) => {
-    if (node.hp <= 0) return
+  // 只让打击单元移动
+  const strikers = blueNodes.value.filter(n => n.baseType === 'striker' && n.hp > 0)
 
+  if (strikers.length === 0) {
+    ElMessage.warning('没有可用的打击单元')
+    return
+  }
+
+  strikers.forEach((node, idx) => {
     initNodeMovement(node)
 
     node.movement.targetX = defensiveX
@@ -797,11 +770,11 @@ const formDefensiveLine = () => {
     node.movement.path = []
   })
 
-  addLog('我方单位进入防御阵型', 'info')
-  ElMessage.success('防御阵型已形成')
+  addLog('打击单元进入防御阵型', 'info')
+  ElMessage.success(`${strikers.length} 个打击单元进入防御阵型`)
 }
 
-// 进攻阵型
+// 进攻阵型（仅打击单元）
 const attackFormation = () => {
   if (!battleCanvas.value) return
   if (redNodes.value.length === 0) {
@@ -830,16 +803,22 @@ const attackFormation = () => {
   centerX /= count
   centerY /= count
 
-  // 我方节点向敌方中心靠近，保持扇形阵型
-  blueNodes.value.forEach((node, idx) => {
-    if (node.hp <= 0) return
+  // 只让打击单元移动
+  const strikers = blueNodes.value.filter(n => n.baseType === 'striker' && n.hp > 0)
 
+  if (strikers.length === 0) {
+    ElMessage.warning('没有可用的打击单元')
+    return
+  }
+
+  // 打击单元向敌方中心靠近，保持扇形阵型
+  strikers.forEach((node, idx) => {
     initNodeMovement(node)
 
     // 计算扇形位置
     const angleSpread = Math.PI / 3  // 60度扇形
-    const angle = -angleSpread / 2 + (idx / Math.max(1, blueNodes.value.length - 1)) * angleSpread
-    const distance = 200  // 距离敌方中心200单位
+    const angle = -angleSpread / 2 + (idx / Math.max(1, strikers.length - 1)) * angleSpread
+    const distance = 150  // 距离敌方中心150单位
 
     const dx = centerX - node.x
     const dy = centerY - node.y
@@ -852,8 +831,8 @@ const attackFormation = () => {
     node.movement.path = []
   })
 
-  addLog('我方单位进入进攻阵型', 'danger')
-  ElMessage.success('进攻阵型已形成')
+  addLog('打击单元进入进攻阵型', 'danger')
+  ElMessage.success(`${strikers.length} 个打击单元进入进攻阵型`)
 }
 
 // ==================== 文件操作 ====================
@@ -1638,12 +1617,15 @@ const executeStrike = () => {
     addLog(`✓ 打击命中! 造成 ${damage} 点伤害`, 'danger')
     addLog(`目标剩余HP: ${newHp}`, 'info')
 
-    // ⭐ 触发事件驱动移动：目标受到攻击
-    if (movementEnabled.value && newHp > 0) {
+    // ⭐ 触发事件驱动移动：打击单元向目标移动
+    if (movementEnabled.value) {
       const striker = chain.nodeDetails.find(n => n.baseType === 'striker')
       if (striker) {
-        initNodeMovement(target)
-        handleCombatEvent('attacked', target, { attacker: striker })
+        const strikerNode = blueNodes.value.find(n => n.id === striker.id)
+        if (strikerNode) {
+          initNodeMovement(strikerNode)
+          handleCombatEvent('strikeTarget', strikerNode, { target })
+        }
       }
     }
 
