@@ -114,6 +114,92 @@
                 </el-space>
               </div>
 
+              <!-- 动态移动控制 -->
+              <div class="control-section">
+                <div class="section-title">
+                  动态移动系统
+                  <el-tag
+                    :type="movementEnabled ? 'success' : 'info'"
+                    size="small"
+                    style="margin-left: 8px"
+                  >
+                    {{ movementEnabled ? '运行中' : '已停止' }}
+                  </el-tag>
+                </div>
+
+                <el-space direction="vertical" style="width: 100%" :size="8">
+                  <!-- 启动/停止按钮 -->
+                  <el-button
+                    :type="movementEnabled ? 'warning' : 'success'"
+                    style="width: 100%"
+                    @click="toggleMovementSystem"
+                  >
+                    {{ movementEnabled ? '⏸ 停止移动' : '▶ 启动移动' }}
+                  </el-button>
+
+                  <!-- 速度控制 -->
+                  <div style="margin-top: 8px">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px">
+                      <el-text size="small">移动速度</el-text>
+                      <el-text size="small" type="primary">{{ movementSpeed.toFixed(1) }}x</el-text>
+                    </div>
+                    <el-slider
+                      v-model="movementSpeed"
+                      :min="0.5"
+                      :max="5"
+                      :step="0.5"
+                      :disabled="!movementEnabled"
+                    />
+                  </div>
+
+                  <!-- 快捷战术指令 -->
+                  <el-divider style="margin: 8px 0">快捷指令</el-divider>
+
+                  <el-button
+                    size="small"
+                    style="width: 100%"
+                    @click="autoPatrol"
+                    :disabled="!movementEnabled"
+                  >
+                    🔄 自动巡逻
+                  </el-button>
+
+                  <el-button
+                    size="small"
+                    style="width: 100%"
+                    @click="formDefensiveLine"
+                    :disabled="!movementEnabled"
+                  >
+                    🛡 防御阵型
+                  </el-button>
+
+                  <el-button
+                    size="small"
+                    style="width: 100%"
+                    @click="attackFormation"
+                    :disabled="!movementEnabled"
+                  >
+                    ⚔ 进攻阵型
+                  </el-button>
+                </el-space>
+
+                <!-- 操作提示 -->
+                <el-alert
+                  v-if="movementEnabled"
+                  type="info"
+                  :closable="false"
+                  style="margin-top: 12px"
+                >
+                  <template #default>
+                    <div style="font-size: 11px; line-height: 1.5">
+                      <div>• 左键拖拽节点直接移动</div>
+                      <div>• 选中节点后右键设置目标</div>
+                      <div>• 打击敌方会触发战术响应</div>
+                    </div>
+                  </template>
+                </el-alert>
+              </div>
+
               <!-- 视图控制 -->
               <div class="control-section">
                 <div class="section-title">视图控制</div>
@@ -284,6 +370,7 @@
               <div class="canvas-tips">
                 <el-text size="small" type="info">
                   💡 提示: 鼠标滚轮缩放 | 右键拖拽画布 | 左键选择节点
+                  <span v-if="movementEnabled"> | 左键拖拽节点移动 | 选中后右键设置目标</span>
                 </el-text>
               </div>
             </div>
@@ -354,6 +441,18 @@ const targetNodeId = ref(null)
 const attackCount = ref(0)
 const hitRate = ref(100)
 
+// 动态移动系统
+const movementEnabled = ref(false)     // 是否启用节点移动
+const movementSpeed = ref(2)           // 移动速度倍率
+const movementMode = ref('auto')       // 移动模式: 'auto' | 'manual' | 'hybrid'
+let animationFrameId = null            // 动画帧ID
+let lastFrameTime = 0                  // 上一帧时间
+
+// 节点拖拽
+const draggingNode = ref(null)         // 正在拖拽的节点
+const nodeOffsetX = ref(0)             // 拖拽偏移量
+const nodeOffsetY = ref(0)
+
 // 杀伤链相关
 const killChains = ref([])           // 搜索到的杀伤链列表
 const selectedChainId = ref(null)    // 选中的杀伤链ID
@@ -393,6 +492,371 @@ const strikerCount = computed(() =>
 const commandCount = computed(() =>
   displayNodes.value.filter(n => n.baseType === 'command' || n.type === 'command').length
 )
+
+// ==================== 动态移动系统工具函数 ====================
+
+// 根据节点类型获取移动速度
+const getNodeSpeed = (baseType) => {
+  const speedMap = {
+    sensor: 3,      // 传感器：中速
+    command: 1.5,   // 指挥中心：慢速
+    striker: 4,     // 打击单元：快速
+    support: 2.5    // 支援保障：中速
+  }
+  return speedMap[baseType] || 2
+}
+
+// 初始化节点移动属性
+const initNodeMovement = (node) => {
+  if (!node.movement) {
+    node.movement = {
+      enabled: false,
+      mode: 'idle',
+      targetX: node.x,
+      targetY: node.y,
+      velocityX: 0,
+      velocityY: 0,
+      speed: getNodeSpeed(node.baseType || node.type),
+      path: [],
+      currentPathIndex: 0
+    }
+  }
+}
+
+// 更新节点位置（物理系统）
+const updateNodePosition = (node, deltaTime) => {
+  if (!node.movement.enabled || node.hp <= 0) return
+
+  const dx = node.movement.targetX - node.x
+  const dy = node.movement.targetY - node.y
+  const distance = Math.sqrt(dx * dx + dy * dy)
+
+  // 如果已到达目标，停止移动
+  if (distance < 5) {
+    node.movement.velocityX = 0
+    node.movement.velocityY = 0
+
+    // 如果有航路点，移动到下一个
+    if (node.movement.path.length > 0) {
+      node.movement.currentPathIndex++
+      if (node.movement.currentPathIndex >= node.movement.path.length) {
+        node.movement.currentPathIndex = 0
+        node.movement.mode = 'idle'
+        node.movement.enabled = false
+      } else {
+        const nextPoint = node.movement.path[node.movement.currentPathIndex]
+        node.movement.targetX = nextPoint.x
+        node.movement.targetY = nextPoint.y
+      }
+    } else {
+      node.movement.mode = 'idle'
+      node.movement.enabled = false
+    }
+    return
+  }
+
+  // 计算移动方向
+  const dirX = dx / distance
+  const dirY = dy / distance
+
+  // 计算速度（考虑全局速度倍率）
+  const actualSpeed = node.movement.speed * movementSpeed.value
+
+  // 更新速度
+  node.movement.velocityX = dirX * actualSpeed
+  node.movement.velocityY = dirY * actualSpeed
+
+  // 更新位置
+  node.x += node.movement.velocityX * deltaTime
+  node.y += node.movement.velocityY * deltaTime
+
+  // 更新 networkStore 中的节点位置
+  networkStore.updateNode(node.id, { x: node.x, y: node.y })
+}
+
+// 事件驱动的战术移动
+const handleCombatEvent = (eventType, node, params = {}) => {
+  switch (eventType) {
+    case 'attacked':
+      // 受到攻击 → 撤退
+      if (params.attacker) {
+        const dx = node.x - params.attacker.x
+        const dy = node.y - params.attacker.y
+        const distance = Math.sqrt(dx * dx + dy * dy)
+
+        if (distance > 0) {
+          // 向后撤退
+          const retreatDistance = 150
+          node.movement.targetX = node.x + (dx / distance) * retreatDistance
+          node.movement.targetY = node.y + (dy / distance) * retreatDistance
+          node.movement.mode = 'retreat'
+          node.movement.enabled = true
+
+          addLog(`${node.name} 正在撤退`, 'warning')
+        }
+      }
+      break
+
+    case 'enemyDetected':
+      // 发现敌方 → 根据类型响应
+      if (params.enemy) {
+        if (node.baseType === 'striker') {
+          // 打击单元接近目标
+          node.movement.targetX = params.enemy.x
+          node.movement.targetY = params.enemy.y
+          node.movement.mode = 'attack'
+          node.movement.enabled = true
+
+          addLog(`${node.name} 正在接近目标 ${params.enemy.name}`, 'info')
+        } else if (node.baseType === 'sensor') {
+          // 传感器保持安全距离侦察
+          const safeDistance = 150
+          const angle = Math.atan2(params.enemy.y - node.y, params.enemy.x - node.x)
+          node.movement.targetX = params.enemy.x - Math.cos(angle) * safeDistance
+          node.movement.targetY = params.enemy.y - Math.sin(angle) * safeDistance
+          node.movement.mode = 'recon'
+          node.movement.enabled = true
+
+          addLog(`${node.name} 正在侦察 ${params.enemy.name}`, 'info')
+        }
+      }
+      break
+
+    case 'communicationLost':
+      // 通信中断 → 移动以恢复通信
+      const nearestFriendly = findNearestFriendly(node)
+      if (nearestFriendly) {
+        const dx = nearestFriendly.x - node.x
+        const dy = nearestFriendly.y - node.y
+        node.movement.targetX = node.x + dx * 0.5
+        node.movement.targetY = node.y + dy * 0.5
+        node.movement.mode = 'relink'
+        node.movement.enabled = true
+
+        addLog(`${node.name} 正在恢复通信`, 'warning')
+      }
+      break
+  }
+}
+
+// 查找最近的友军节点
+const findNearestFriendly = (node) => {
+  const friendlyNodes = displayNodes.value.filter(n =>
+    n.faction === node.faction && n.id !== node.id && n.hp > 0
+  )
+
+  if (friendlyNodes.length === 0) return null
+
+  let nearest = friendlyNodes[0]
+  let minDistance = Infinity
+
+  friendlyNodes.forEach(n => {
+    const dist = Math.sqrt((n.x - node.x) ** 2 + (n.y - node.y) ** 2)
+    if (dist < minDistance) {
+      minDistance = dist
+      nearest = n
+    }
+  })
+
+  return nearest
+}
+
+// 动画循环
+const animationLoop = (timestamp) => {
+  if (!movementEnabled.value) {
+    animationFrameId = null
+    return
+  }
+
+  // 计算时间差（秒）
+  const deltaTime = lastFrameTime ? (timestamp - lastFrameTime) / 1000 : 0
+  lastFrameTime = timestamp
+
+  // 更新所有启用移动的节点
+  displayNodes.value.forEach(node => {
+    if (node.movement && node.movement.enabled) {
+      updateNodePosition(node, deltaTime)
+    }
+  })
+
+  // 重绘画布
+  drawBattlefield()
+
+  // 继续下一帧
+  animationFrameId = requestAnimationFrame(animationLoop)
+}
+
+// 启动移动系统
+const startMovementSystem = () => {
+  if (movementEnabled.value) return
+
+  movementEnabled.value = true
+  lastFrameTime = 0
+
+  // 确保所有节点都有移动属性
+  displayNodes.value.forEach(node => initNodeMovement(node))
+
+  // 启动动画循环
+  animationFrameId = requestAnimationFrame(animationLoop)
+
+  addLog('节点移动系统已启动', 'success')
+  ElMessage.success('节点移动系统已启动')
+}
+
+// 停止移动系统
+const stopMovementSystem = () => {
+  movementEnabled.value = false
+
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId)
+    animationFrameId = null
+  }
+
+  // 停止所有节点移动
+  displayNodes.value.forEach(node => {
+    if (node.movement) {
+      node.movement.enabled = false
+      node.movement.velocityX = 0
+      node.movement.velocityY = 0
+    }
+  })
+
+  addLog('节点移动系统已停止', 'warning')
+  ElMessage.info('节点移动系统已停止')
+}
+
+// 切换移动系统
+const toggleMovementSystem = () => {
+  if (movementEnabled.value) {
+    stopMovementSystem()
+  } else {
+    startMovementSystem()
+  }
+}
+
+// ==================== 战术指令 ====================
+
+// 自动巡逻
+const autoPatrol = () => {
+  if (!battleCanvas.value) return
+
+  const canvas = battleCanvas.value
+  const worldWidth = canvas.width / scale.value
+  const worldHeight = canvas.height / scale.value
+
+  blueNodes.value.forEach((node, idx) => {
+    if (node.hp <= 0) return
+
+    initNodeMovement(node)
+
+    // 创建巡逻路径（矩形巡逻）
+    const patrolWidth = 200
+    const patrolHeight = 200
+    const startX = worldWidth * 0.2
+    const startY = 100 + idx * 150
+
+    node.movement.path = [
+      { x: startX, y: startY },
+      { x: startX + patrolWidth, y: startY },
+      { x: startX + patrolWidth, y: startY + patrolHeight },
+      { x: startX, y: startY + patrolHeight }
+    ]
+
+    node.movement.currentPathIndex = 0
+    node.movement.targetX = node.movement.path[0].x
+    node.movement.targetY = node.movement.path[0].y
+    node.movement.mode = 'patrol'
+    node.movement.enabled = true
+  })
+
+  addLog('我方单位开始巡逻', 'info')
+  ElMessage.success('巡逻指令已下达')
+}
+
+// 防御阵型
+const formDefensiveLine = () => {
+  if (!battleCanvas.value) return
+
+  const canvas = battleCanvas.value
+  const worldWidth = canvas.width / scale.value
+  const worldHeight = canvas.height / scale.value
+
+  const defensiveX = worldWidth * 0.3
+  const startY = 100
+  const spacing = 120
+
+  blueNodes.value.forEach((node, idx) => {
+    if (node.hp <= 0) return
+
+    initNodeMovement(node)
+
+    node.movement.targetX = defensiveX
+    node.movement.targetY = startY + idx * spacing
+    node.movement.mode = 'defensive'
+    node.movement.enabled = true
+    node.movement.path = []
+  })
+
+  addLog('我方单位进入防御阵型', 'info')
+  ElMessage.success('防御阵型已形成')
+}
+
+// 进攻阵型
+const attackFormation = () => {
+  if (!battleCanvas.value) return
+  if (redNodes.value.length === 0) {
+    ElMessage.warning('没有可攻击的敌方目标')
+    return
+  }
+
+  // 计算敌方中心位置
+  let centerX = 0
+  let centerY = 0
+  let count = 0
+
+  redNodes.value.forEach(node => {
+    if (node.hp > 0) {
+      centerX += node.x
+      centerY += node.y
+      count++
+    }
+  })
+
+  if (count === 0) {
+    ElMessage.warning('所有敌方目标已被摧毁')
+    return
+  }
+
+  centerX /= count
+  centerY /= count
+
+  // 我方节点向敌方中心靠近，保持扇形阵型
+  blueNodes.value.forEach((node, idx) => {
+    if (node.hp <= 0) return
+
+    initNodeMovement(node)
+
+    // 计算扇形位置
+    const angleSpread = Math.PI / 3  // 60度扇形
+    const angle = -angleSpread / 2 + (idx / Math.max(1, blueNodes.value.length - 1)) * angleSpread
+    const distance = 200  // 距离敌方中心200单位
+
+    const dx = centerX - node.x
+    const dy = centerY - node.y
+    const baseAngle = Math.atan2(dy, dx)
+
+    node.movement.targetX = centerX - Math.cos(baseAngle + angle) * distance
+    node.movement.targetY = centerY - Math.sin(baseAngle + angle) * distance
+    node.movement.mode = 'attack'
+    node.movement.enabled = true
+    node.movement.path = []
+  })
+
+  addLog('我方单位进入进攻阵型', 'danger')
+  ElMessage.success('进攻阵型已形成')
+}
+
+// ==================== 文件操作 ====================
 
 // 文件导入
 const handleFileSelect = (file) => {
@@ -440,7 +904,20 @@ const importNetworkData = (data) => {
       // 其他属性
       description: node.description,
       createdAt: node.createdAt,
-      originalType: node.type
+      originalType: node.type,
+
+      // ⭐ 动态移动属性
+      movement: {
+        enabled: false,
+        mode: 'idle',           // 'idle' | 'patrol' | 'attack' | 'retreat' | 'recon' | 'manual'
+        targetX: node.x,
+        targetY: node.y,
+        velocityX: 0,
+        velocityY: 0,
+        speed: getNodeSpeed(node.baseType || node.type),  // 根据类型设置速度
+        path: [],               // 航路点
+        currentPathIndex: 0
+      }
     }))
 
     // 转换边数据
@@ -921,9 +1398,45 @@ const handleMouseDown = (e) => {
   const rect = battleCanvas.value.getBoundingClientRect()
   const mouseX = e.clientX - rect.left
   const mouseY = e.clientY - rect.top
+  const worldPos = screenToWorld(mouseX, mouseY)
 
+  // 右键：设置移动目标或拖拽画布
   if (e.button === 2) {
     e.preventDefault()
+
+    // 检查是否点击在我方节点上
+    let clickedNode = null
+    blueNodes.value.forEach(node => {
+      const dist = Math.sqrt((worldPos.x - node.x) ** 2 + (worldPos.y - node.y) ** 2)
+      if (dist < 28 && node.hp > 0) {
+        clickedNode = node
+      }
+    })
+
+    // 如果点击在节点上，设置为该节点的移动目标
+    if (clickedNode && movementEnabled.value) {
+      // 右键点击其他位置设置移动目标（需要先选中节点）
+      return
+    } else if (selectedNodeId.value && movementEnabled.value) {
+      // 为选中的节点设置移动目标
+      const selectedNode = blueNodes.value.find(n => n.id === selectedNodeId.value)
+      if (selectedNode && selectedNode.hp > 0) {
+        initNodeMovement(selectedNode)
+        selectedNode.movement.targetX = worldPos.x
+        selectedNode.movement.targetY = worldPos.y
+        selectedNode.movement.mode = 'manual'
+        selectedNode.movement.enabled = true
+        selectedNode.movement.path = []
+
+        addLog(`${selectedNode.name} 移动目标已设置`, 'info')
+
+        // 绘制目标点指示
+        drawBattlefield()
+        return
+      }
+    }
+
+    // 否则拖拽画布
     isDragging.value = true
     dragStartX.value = mouseX
     dragStartY.value = mouseY
@@ -933,34 +1446,81 @@ const handleMouseDown = (e) => {
     return
   }
 
+  // 左键：选中节点或开始拖拽节点
   if (e.button === 0) {
-    const worldPos = screenToWorld(mouseX, mouseY)
-
+    // 检查是否点击在我方节点上
+    let clickedNode = null
     blueNodes.value.forEach(node => {
       const dist = Math.sqrt((worldPos.x - node.x) ** 2 + (worldPos.y - node.y) ** 2)
       if (dist < 28 && node.hp > 0) {
-        selectedNodeId.value = node.id
-        drawBattlefield()
-        addLog(`选中 ${node.name}`)
+        clickedNode = node
       }
     })
+
+    if (clickedNode) {
+      selectedNodeId.value = clickedNode.id
+
+      // 如果移动系统启用，可以拖拽节点
+      if (movementEnabled.value) {
+        draggingNode.value = clickedNode
+        nodeOffsetX.value = worldPos.x - clickedNode.x
+        nodeOffsetY.value = worldPos.y - clickedNode.y
+        battleCanvas.value.style.cursor = 'move'
+
+        addLog(`拖拽 ${clickedNode.name}`, 'info')
+      } else {
+        addLog(`选中 ${clickedNode.name}`)
+      }
+
+      drawBattlefield()
+    }
   }
 }
 
 const handleMouseMove = (e) => {
-  if (!isDragging.value) return
-
   const rect = battleCanvas.value.getBoundingClientRect()
   const mouseX = e.clientX - rect.left
   const mouseY = e.clientY - rect.top
+  const worldPos = screenToWorld(mouseX, mouseY)
 
-  offsetX.value = lastOffsetX.value + (mouseX - dragStartX.value)
-  offsetY.value = lastOffsetY.value + (mouseY - dragStartY.value)
+  // 如果正在拖拽节点
+  if (draggingNode.value) {
+    const newX = worldPos.x - nodeOffsetX.value
+    const newY = worldPos.y - nodeOffsetY.value
 
-  drawBattlefield()
+    // 更新节点位置
+    draggingNode.value.x = newX
+    draggingNode.value.y = newY
+
+    // 更新移动目标
+    initNodeMovement(draggingNode.value)
+    draggingNode.value.movement.targetX = newX
+    draggingNode.value.movement.targetY = newY
+    draggingNode.value.movement.enabled = false  // 拖拽时禁用自动移动
+
+    // 更新 store
+    networkStore.updateNode(draggingNode.value.id, { x: newX, y: newY })
+
+    drawBattlefield()
+    return
+  }
+
+  // 如果正在拖拽画布
+  if (isDragging.value) {
+    offsetX.value = lastOffsetX.value + (mouseX - dragStartX.value)
+    offsetY.value = lastOffsetY.value + (mouseY - dragStartY.value)
+    drawBattlefield()
+  }
 }
 
 const handleMouseUp = () => {
+  // 完成节点拖拽
+  if (draggingNode.value) {
+    draggingNode.value = null
+    battleCanvas.value.style.cursor = 'crosshair'
+  }
+
+  // 完成画布拖拽
   if (isDragging.value) {
     isDragging.value = false
     battleCanvas.value.style.cursor = 'crosshair'
@@ -1074,15 +1634,24 @@ const executeStrike = () => {
   if (hit) {
     const newHp = Math.max(0, target.hp - damage)
     networkStore.updateNode(target.id, { hp: newHp })
-    
+
     addLog(`✓ 打击命中! 造成 ${damage} 点伤害`, 'danger')
     addLog(`目标剩余HP: ${newHp}`, 'info')
-    
+
+    // ⭐ 触发事件驱动移动：目标受到攻击
+    if (movementEnabled.value && newHp > 0) {
+      const striker = chain.nodeDetails.find(n => n.baseType === 'striker')
+      if (striker) {
+        initNodeMovement(target)
+        handleCombatEvent('attacked', target, { attacker: striker })
+      }
+    }
+
     if (newHp === 0) {
       addLog(`✓✓ 目标已摧毁!`, 'success')
       ElMessage.success(`${target.name} 已被摧毁！`)
     }
-    
+
     attackCount.value++
     const previousHits = Math.round((hitRate.value / 100) * (attackCount.value - 1))
     hitRate.value = ((previousHits + 1) / attackCount.value) * 100
@@ -1203,6 +1772,13 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+
+  // 清理移动系统
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId)
+    animationFrameId = null
+  }
+
   if (ctx) {
     ctx = null
   }
