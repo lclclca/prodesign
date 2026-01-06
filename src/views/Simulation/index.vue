@@ -1250,67 +1250,73 @@ const drawArrow = (source, target, color) => {
 const highlightKillChain = () => {
   const chain = killChains.value.find(c => c.id === selectedChainId.value)
   if (!chain) return
-  
-  // 绘制高亮的edges
-  chain.edges.forEach((edge, idx) => {
-    const source = displayNodes.value.find(n => n.id === edge.source)
-    const target = displayNodes.value.find(n => n.id === edge.target)
-    
-    if (!source || !target) return
-    
-    // 高亮线条
-    ctx.strokeStyle = '#FFD700'
-    ctx.lineWidth = 4 / scale.value
-    ctx.setLineDash([])
-    ctx.globalAlpha = 0.9
-    
-    ctx.beginPath()
-    ctx.moveTo(source.x, source.y)
-    ctx.lineTo(target.x, target.y)
-    ctx.stroke()
-    
-    // 绘制序号
-    const midX = (source.x + target.x) / 2
-    const midY = (source.y + target.y) / 2
-    
-    ctx.fillStyle = '#FFD700'
-    ctx.beginPath()
-    ctx.arc(midX, midY, 12 / scale.value, 0, Math.PI * 2)
-    ctx.fill()
-    
-    ctx.fillStyle = '#000'
-    ctx.font = `bold ${14 / scale.value}px Arial`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText((idx + 1).toString(), midX, midY)
-    
-    ctx.globalAlpha = 1
-  })
-  
-  // 高亮节点
-  chain.nodeDetails.forEach((node, idx) => {
-    ctx.strokeStyle = '#FFD700'
-    ctx.lineWidth = 5 / scale.value
-    ctx.globalAlpha = 0.9
-    
-    ctx.beginPath()
-    ctx.arc(node.x, node.y, 32, 0, Math.PI * 2)
-    ctx.stroke()
-    
-    // 绘制节点序号
-    ctx.fillStyle = '#FFD700'
-    ctx.beginPath()
-    ctx.arc(node.x, node.y - 45, 15 / scale.value, 0, Math.PI * 2)
-    ctx.fill()
-    
-    ctx.fillStyle = '#000'
-    ctx.font = `bold ${16 / scale.value}px Arial`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText((idx + 1).toString(), node.x, node.y - 45)
-    
-    ctx.globalAlpha = 1
-  })
+
+  // ⭐ 添加防御性检查 - 确保 edges 存在
+  if (chain.edges && Array.isArray(chain.edges)) {
+    // 绘制高亮的edges
+    chain.edges.forEach((edge, idx) => {
+      const source = displayNodes.value.find(n => n.id === edge.source)
+      const target = displayNodes.value.find(n => n.id === edge.target)
+
+      if (!source || !target) return
+
+      // 高亮线条
+      ctx.strokeStyle = '#FFD700'
+      ctx.lineWidth = 4 / scale.value
+      ctx.setLineDash([])
+      ctx.globalAlpha = 0.9
+
+      ctx.beginPath()
+      ctx.moveTo(source.x, source.y)
+      ctx.lineTo(target.x, target.y)
+      ctx.stroke()
+
+      // 绘制序号
+      const midX = (source.x + target.x) / 2
+      const midY = (source.y + target.y) / 2
+
+      ctx.fillStyle = '#FFD700'
+      ctx.beginPath()
+      ctx.arc(midX, midY, 12 / scale.value, 0, Math.PI * 2)
+      ctx.fill()
+
+      ctx.fillStyle = '#000'
+      ctx.font = `bold ${14 / scale.value}px Arial`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText((idx + 1).toString(), midX, midY)
+
+      ctx.globalAlpha = 1
+    })
+  }
+
+  // ⭐ 添加防御性检查 - 确保 nodeDetails 存在
+  if (chain.nodeDetails && Array.isArray(chain.nodeDetails)) {
+    // 高亮节点
+    chain.nodeDetails.forEach((node, idx) => {
+      ctx.strokeStyle = '#FFD700'
+      ctx.lineWidth = 5 / scale.value
+      ctx.globalAlpha = 0.9
+
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, 32, 0, Math.PI * 2)
+      ctx.stroke()
+
+      // 绘制节点序号
+      ctx.fillStyle = '#FFD700'
+      ctx.beginPath()
+      ctx.arc(node.x, node.y - 45, 15 / scale.value, 0, Math.PI * 2)
+      ctx.fill()
+
+      ctx.fillStyle = '#000'
+      ctx.font = `bold ${16 / scale.value}px Arial`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText((idx + 1).toString(), node.x, node.y - 45)
+
+      ctx.globalAlpha = 1
+    })
+  }
 }
 
 
@@ -1552,6 +1558,7 @@ const searchAndAttack = async (targetId) => {
     const targetNode = redNodes.value.find(n => n.id === targetId)
     if (!targetNode || targetNode.hp <= 0) {
       ElMessage.warning('目标已被摧毁')
+      searching.value = false
       return
     }
 
@@ -1574,7 +1581,14 @@ const searchAndAttack = async (targetId) => {
       selectedChainId.value = bestChain.id
 
       addLog(`✓ 找到 ${result.killChains.length} 条杀伤链`, 'success')
-      addLog(`自动选择最优杀伤链: ${bestChain.nodeDetails.map(n => n.name).join(' → ')}`, 'info')
+
+      // ⭐ 添加防御性检查
+      if (bestChain.nodeDetails && Array.isArray(bestChain.nodeDetails)) {
+        addLog(`自动选择最优杀伤链: ${bestChain.nodeDetails.map(n => n.name).join(' → ')}`, 'info')
+      } else {
+        addLog(`自动选择最优杀伤链 (ID: ${bestChain.id})`, 'info')
+      }
+
       addLog(`效能: ${(bestChain.effectiveness * 100).toFixed(1)}%`, 'info')
 
       // 重绘画布（高亮显示杀伤链）
@@ -1583,7 +1597,9 @@ const searchAndAttack = async (targetId) => {
 
       // 延迟500ms后自动执行打击
       setTimeout(() => {
-        executeStrike()
+        if (selectedChainId.value) {
+          executeStrike()
+        }
       }, 500)
     } else {
       killChains.value = []
@@ -1599,6 +1615,7 @@ const searchAndAttack = async (targetId) => {
 
   } catch (error) {
     console.error('搜索错误:', error)
+    addLog(`搜索出错: ${error.message}`, 'danger')
     ElMessage.error('搜索过程出错: ' + error.message)
   } finally {
     searching.value = false
@@ -1680,35 +1697,50 @@ const searchKillChains = async () => {
 const selectChain = (chainId) => {
   selectedChainId.value = chainId
   drawBattlefield()
-  
+
   const chain = killChains.value.find(c => c.id === chainId)
   if (chain) {
-    addLog(`选中杀伤链: ${chain.nodeDetails.map(n => n.name).join(' → ')}`, 'success')
+    // ⭐ 添加防御性检查
+    if (chain.nodeDetails && Array.isArray(chain.nodeDetails)) {
+      addLog(`选中杀伤链: ${chain.nodeDetails.map(n => n.name).join(' → ')}`, 'success')
+    } else {
+      addLog(`选中杀伤链 (ID: ${chain.id})`, 'success')
+    }
   }
 }
 
 // 执行打击
 const executeStrike = () => {
   const chain = killChains.value.find(c => c.id === selectedChainId.value)
-  if (!chain) return
-  
+  if (!chain) {
+    addLog(`执行打击失败：杀伤链未找到`, 'danger')
+    return
+  }
+
   const target = displayNodes.value.find(n => n.id === targetNodeId.value)
   if (!target || target.hp <= 0) {
     ElMessage.warning('目标已被摧毁')
     return
   }
-  
+
   addLog(`━━━━ 执行打击 ━━━━`, 'danger')
-  addLog(`使用杀伤链: ${chain.nodeDetails.map(n => n.name).join(' → ')}`, 'info')
+
+  // ⭐ 添加防御性检查
+  if (chain.nodeDetails && Array.isArray(chain.nodeDetails)) {
+    addLog(`使用杀伤链: ${chain.nodeDetails.map(n => n.name).join(' → ')}`, 'info')
+  } else {
+    addLog(`使用杀伤链 (ID: ${chain.id})`, 'info')
+  }
+
   addLog(`杀伤链效能: ${(chain.effectiveness * 100).toFixed(1)}%`, 'info')
-  
+
   // 计算伤害（基于杀伤链效能）
   const baseDamage = 30
   const damage = Math.floor(baseDamage * (1 + chain.effectiveness))
-  
+
   // 判定是否命中（基于效能）
   const hit = Math.random() < chain.effectiveness
-  
+
   if (hit) {
     const newHp = Math.max(0, target.hp - damage)
     networkStore.updateNode(target.id, { hp: newHp })
@@ -1717,7 +1749,7 @@ const executeStrike = () => {
     addLog(`目标剩余HP: ${newHp}`, 'info')
 
     // ⭐ 触发事件驱动移动：打击单元向目标移动
-    if (movementEnabled.value) {
+    if (movementEnabled.value && chain.nodeDetails && Array.isArray(chain.nodeDetails)) {
       const striker = chain.nodeDetails.find(n => n.baseType === 'striker')
       if (striker) {
         const strikerNode = blueNodes.value.find(n => n.id === striker.id)
