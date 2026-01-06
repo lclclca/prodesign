@@ -1,0 +1,256 @@
+{
+  "version": "2.0",
+  "name": "完整示例网络 - 用于测试杀伤链",
+  "description": "包含传感器-指挥-打击完整杀伤链的示例网络",
+  "timestamp": "2024-01-06T00:00:00.000Z",
+  "networkMode": "mixed",
+  "metadata": {
+    "nodeCount": 8,
+    "edgeCount": 9,
+    "friendlyNodeCount": 5,
+    "enemyNodeCount": 3
+  },
+  "nodes": [
+    {
+      "id": "blue_sensor_1",
+      "name": "预警雷达-01",
+      "label": "预警雷达-01",
+      "baseType": "sensor",
+      "type": "sensor",
+      "faction": "blue",
+      "x": 150,
+      "y": 200,
+      "hp": 100,
+      "icon": "📡",
+      "color": "#409EFF",
+      "model": "AN/APY-1",
+      "description": "远程预警雷达",
+      "performance": {
+        "detectionRange": 300,
+        "detectionProbability": 0.9,
+        "antiJamming": 0.8,
+        "reliability": 0.95
+      }
+    },
+    {
+      "id": "blue_command_1",
+      "name": "指挥中心-01",
+      "label": "指挥中心-01",
+      "baseType": "command",
+      "type": "command",
+      "faction": "blue",
+      "x": 250,
+      "y": 200,
+      "hp": 100,
+      "icon": "🎯",
+      "color": "#409EFF",
+      "model": "C4ISR Center",
+      "description": "联合作战指挥中心",
+      "performance": {
+        "processingCapacity": 500,
+        "decisionDelay": 3,
+        "commandRange": 400,
+        "commDistance": 400,
+        "reliability": 0.98
+      }
+    },
+    {
+      "id": "blue_striker_1",
+      "name": "导弹发射车-01",
+      "label": "导弹发射车-01",
+      "baseType": "striker",
+      "type": "striker",
+      "faction": "blue",
+      "x": 350,
+      "y": 150,
+      "hp": 100,
+      "icon": "🚀",
+      "color": "#409EFF",
+      "model": "M270 MLRS",
+      "description": "多管火箭发射系统",
+      "performance": {
+        "strikeRange": 250,
+        "damageRate": 0.85,
+        "accuracy": 15,
+        "commDistance": 300,
+        "reliability": 0.9
+      }
+    },
+    {
+      "id": "blue_striker_2",
+      "name": "战斗机-01",
+      "label": "战斗机-01",
+      "baseType": "striker",
+      "type": "striker",
+      "faction": "blue",
+      "x": 350,
+      "y": 250,
+      "hp": 100,
+      "icon": "✈️",
+      "color": "#409EFF",
+      "model": "F-16",
+      "description": "多用途战斗机",
+      "performance": {
+        "strikeRange": 200,
+        "damageRate": 0.75,
+        "accuracy": 20,
+        "commDistance": 350,
+        "reliability": 0.88
+      }
+    },
+    {
+      "id": "blue_sensor_2",
+      "name": "侦察卫星-01",
+      "label": "侦察卫星-01",
+      "baseType": "sensor",
+      "type": "sensor",
+      "faction": "blue",
+      "x": 150,
+      "y": 300,
+      "hp": 100,
+      "icon": "🛰️",
+      "color": "#409EFF",
+      "model": "KH-11",
+      "description": "光学侦察卫星",
+      "performance": {
+        "detectionRange": 500,
+        "detectionProbability": 0.85,
+        "antiJamming": 0.9,
+        "reliability": 0.92
+      }
+    },
+    {
+      "id": "red_target_1",
+      "name": "敌方指挥部",
+      "label": "敌方指挥部",
+      "baseType": "command",
+      "type": "command",
+      "faction": "red",
+      "x": 550,
+      "y": 200,
+      "hp": 100,
+      "icon": "⚠️",
+      "color": "#F56C6C",
+      "model": "Enemy HQ",
+      "description": "敌方指挥中心",
+      "performance": {
+        "processingCapacity": 300,
+        "decisionDelay": 5,
+        "commandRange": 300,
+        "reliability": 0.85
+      }
+    },
+    {
+      "id": "red_target_2",
+      "name": "敌方防空阵地",
+      "label": "敌方防空阵地",
+      "baseType": "striker",
+      "type": "striker",
+      "faction": "red",
+      "x": 550,
+      "y": 300,
+      "hp": 100,
+      "icon": "🎯",
+      "color": "#F56C6C",
+      "model": "SA-15",
+      "description": "防空导弹系统",
+      "performance": {
+        "strikeRange": 150,
+        "damageRate": 0.7,
+        "accuracy": 25,
+        "reliability": 0.8
+      }
+    },
+    {
+      "id": "red_target_3",
+      "name": "敌方雷达站",
+      "label": "敌方雷达站",
+      "baseType": "sensor",
+      "type": "sensor",
+      "faction": "red",
+      "x": 550,
+      "y": 100,
+      "hp": 100,
+      "icon": "📡",
+      "color": "#F56C6C",
+      "model": "P-18",
+      "description": "地面预警雷达",
+      "performance": {
+        "detectionRange": 200,
+        "detectionProbability": 0.75,
+        "antiJamming": 0.6,
+        "reliability": 0.8
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_1",
+      "source": "blue_sensor_1",
+      "target": "blue_command_1",
+      "type": "detection",
+      "label": "探测链路"
+    },
+    {
+      "id": "edge_2",
+      "source": "blue_sensor_2",
+      "target": "blue_command_1",
+      "type": "detection",
+      "label": "探测链路"
+    },
+    {
+      "id": "edge_3",
+      "source": "blue_command_1",
+      "target": "blue_striker_1",
+      "type": "communication",
+      "label": "指挥链路"
+    },
+    {
+      "id": "edge_4",
+      "source": "blue_command_1",
+      "target": "blue_striker_2",
+      "type": "communication",
+      "label": "指挥链路"
+    },
+    {
+      "id": "edge_5",
+      "source": "blue_striker_1",
+      "target": "red_target_1",
+      "type": "strike",
+      "label": "打击链路"
+    },
+    {
+      "id": "edge_6",
+      "source": "blue_striker_1",
+      "target": "red_target_2",
+      "type": "strike",
+      "label": "打击链路"
+    },
+    {
+      "id": "edge_7",
+      "source": "blue_striker_2",
+      "target": "red_target_1",
+      "type": "strike",
+      "label": "打击链路"
+    },
+    {
+      "id": "edge_8",
+      "source": "blue_striker_2",
+      "target": "red_target_3",
+      "type": "strike",
+      "label": "打击链路"
+    },
+    {
+      "id": "edge_9",
+      "source": "blue_striker_1",
+      "target": "red_target_3",
+      "type": "strike",
+      "label": "打击链路"
+    }
+  ],
+  "viewTransform": {
+    "scale": 1,
+    "translateX": 0,
+    "translateY": 0
+  }
+}

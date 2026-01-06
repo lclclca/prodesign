@@ -72,24 +72,45 @@ export function searchKillChains(nodes, edges, targetId) {
   
   // 5. 计算每条杀伤链的效能
   const killChains = allPaths.map((path, index) => {
-    const result = calculateKillChainEffectiveness(path, nodes)
+    // ⭐ 修复：正确传递参数给效能计算函数
+    const chainObj = { path: path }
+    const effectiveness = calculateKillChainEffectiveness(chainObj, nodes, edges)
+
+    // 获取杀伤链中的节点详情
+    const nodeDetails = path.map(nodeId => {
+      const node = nodes.find(n => n.id === nodeId)
+      return node ? {
+        id: nodeId,
+        name: node.name || node.label || nodeId,
+        baseType: node.baseType,
+        x: node.x,
+        y: node.y,
+        performance: node.performance
+      } : null
+    }).filter(n => n !== null)
+
+    // 获取杀伤链中的边详情
+    const edgeDetails = []
+    for (let i = 0; i < path.length - 1; i++) {
+      const edge = edges.find(e =>
+        e.source === path[i] && e.target === path[i + 1]
+      )
+      if (edge) {
+        edgeDetails.push({
+          source: edge.source,
+          target: edge.target,
+          type: edge.type
+        })
+      }
+    }
+
     return {
       id: `chain_${index + 1}`,
-      path,
-      effectiveness: result.effectiveness,
-      score: result.score,
-      breakdown: result.breakdown,
-      details: result.details,
-      distances: result.distances,
-      totalDelay: result.totalDelay,
-      nodes: path.map(nodeId => {
-        const node = nodes.find(n => n.id === nodeId)
-        return {
-          id: nodeId,
-          name: node?.name || node?.label || nodeId,
-          type: node?.baseType
-        }
-      })
+      path: path,
+      nodeDetails: nodeDetails,  // ⭐ 添加节点详情
+      edges: edgeDetails,         // ⭐ 添加边详情
+      effectiveness: effectiveness,  // ⭐ 效能值（0-1）
+      length: path.length
     }
   })
   
